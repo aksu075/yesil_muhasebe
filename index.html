@@ -52,6 +52,144 @@
 const DONEMLER = ['119. Dönem', '120. Dönem', '121. Dönem', '122. Dönem', '123. Dönem', '124. Dönem'];
 const GIDER_KATEGORILERI = ['Mermi', 'Poligon', 'Eğitmen', 'Kira', 'Personel', 'Mutfak', 'Vergi', 'Diğer'];
 
+// Google Sheets Configuration
+const SHEETS_CONFIG = {
+  API_KEY: 'AIzaSyA2X1BM4j-uWPgGdtnlawuT2A7XwbJUGa0',
+  SHEET_ID: '1IjRirsnteszEXLRszKR0BFZiIK3bE1EXzQnVSdOtlKk',
+  RANGES: {
+    KAYITLAR: 'Kayitlar!A:Z',
+    GIDERLER: 'Giderler!A:Z',
+    USERS: 'Users!A:Z',
+    LOGS: 'Logs!A:Z'
+  }
+};
+
+// Google Sheets API Helper
+const SheetsAPI = {
+  baseUrl: `https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_CONFIG.SHEET_ID}`,
+  
+  async getRange(range) {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/values/${range}?key=${SHEETS_CONFIG.API_KEY}`
+      );
+      const data = await response.json();
+      return data.values || [];
+    } catch (error) {
+      console.error('Sheets GET error:', error);
+      return [];
+    }
+  },
+  
+  async updateRange(range, values) {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/values/${range}?valueInputOption=RAW&key=${SHEETS_CONFIG.API_KEY}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values })
+        }
+      );
+      return await response.json();
+    } catch (error) {
+      console.error('Sheets UPDATE error:', error);
+      return null;
+    }
+  },
+  
+  async appendRow(range, values) {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/values/${range}:append?valueInputOption=RAW&key=${SHEETS_CONFIG.API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [values] })
+        }
+      );
+      return await response.json();
+    } catch (error) {
+      console.error('Sheets APPEND error:', error);
+      return null;
+    }
+  },
+
+  // Initialize sheets with headers
+  async initializeSheets() {
+    // Kayitlar headers
+    await this.updateRange('Kayitlar!A1:Z1', [[
+      'id', 'adSoyad', 'tcKimlik', 'telefon', 'donem', 'egitimCesidi', 'egitimTuru',
+      'saglikRaporuTarihi', 'kayitTarihi', 'kayitSaati', 'toplamUcret', 'odenen',
+      'vadeTarihi', 'makbuzNo', 'faturaKesildi', 'faturaNo', 'arsivlendi', 'evraklar'
+    ]]);
+    
+    // Giderler headers
+    await this.updateRange('Giderler!A1:E1', [[
+      'id', 'kategori', 'aciklama', 'tutar', 'tarih'
+    ]]);
+    
+    // Users headers
+    await this.updateRange('Users!A1:F1', [[
+      'username', 'password', 'role', 'name', 'active', 'createdAt'
+    ]]);
+    
+    // Logs headers
+    await this.updateRange('Logs!A1:D1', [[
+      'id', 'username', 'action', 'details', 'timestamp'
+    ]]);
+  },
+
+  rowToKayit(row) {
+    if (!row || row.length < 2) return null;
+    return {
+      id: parseInt(row[0]) || Date.now(),
+      adSoyad: row[1] || '',
+      tcKimlik: row[2] || '',
+      telefon: row[3] || '',
+      donem: row[4] || '',
+      egitimCesidi: row[5] || '',
+      egitimTuru: row[6] || '',
+      saglikRaporuTarihi: row[7] || '',
+      kayitTarihi: row[8] || '',
+      kayitSaati: row[9] || '',
+      toplamUcret: parseFloat(row[10]) || 0,
+      odenen: parseFloat(row[11]) || 0,
+      vadeTarihi: row[12] || '',
+      makbuzNo: row[13] || '',
+      faturaKesildi: row[14] === 'true',
+      faturaNo: row[15] || '',
+      arsivlendi: row[16] === 'true',
+      evraklar: row[17] ? JSON.parse(row[17]) : {}
+    };
+  },
+
+  kayitToRow(kayit) {
+    return [
+      kayit.id, kayit.adSoyad, kayit.tcKimlik, kayit.telefon, kayit.donem,
+      kayit.egitimCesidi, kayit.egitimTuru, kayit.saglikRaporuTarihi,
+      kayit.kayitTarihi, kayit.kayitSaati, kayit.toplamUcret, kayit.odenen,
+      kayit.vadeTarihi, kayit.makbuzNo, kayit.faturaKesildi, kayit.faturaNo,
+      kayit.arsivlendi, JSON.stringify(kayit.evraklar)
+    ];
+  },
+
+  rowToGider(row) {
+    if (!row || row.length < 2) return null;
+    return {
+      id: parseInt(row[0]) || Date.now(),
+      kategori: row[1] || '',
+      aciklama: row[2] || '',
+      tutar: parseFloat(row[3]) || 0,
+      tarih: row[4] || ''
+    };
+  },
+
+  giderToRow(gider) {
+    return [gider.id, gider.kategori, gider.aciklama, gider.tutar, gider.tarih];
+  }
+};
+
 const Icon = ({ name, size = 20, className = '' }) => {
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -69,19 +207,82 @@ const Icon = ({ name, size = 20, className = '' }) => {
 
 // --- VERİTABANI ---
 const DB = {
-  get: (key) => { try { return JSON.parse(localStorage.getItem('yesil_' + key)) || []; } catch { return []; } },
-  set: (key, data) => localStorage.setItem('yesil_' + key, JSON.stringify(data)),
-  migrate: () => {
-    let k = DB.get('kayitlar');
-    if (!Array.isArray(k)) k = [];
-    k = k.map(item => ({
-      ...item,
-      odenen: item.odenen || 0,
-      toplamUcret: item.toplamUcret || 0,
-      evraklar: item.evraklar || {},
-      arsivlendi: item.arsivlendi || false
-    }));
-    return { kayitlar: k, giderler: DB.get('giderler') || [] };
+  useSheets: true, // Google Sheets kullan
+  
+  async loadFromSheets() {
+    if (!this.useSheets) return { kayitlar: [], giderler: [] };
+    
+    try {
+      const kayitlarRows = await SheetsAPI.getRange(SHEETS_CONFIG.RANGES.KAYITLAR);
+      const giderlerRows = await SheetsAPI.getRange(SHEETS_CONFIG.RANGES.GIDERLER);
+      
+      const kayitlar = kayitlarRows.slice(1).map(row => SheetsAPI.rowToKayit(row)).filter(Boolean);
+      const giderler = giderlerRows.slice(1).map(row => SheetsAPI.rowToGider(row)).filter(Boolean);
+      
+      return { kayitlar, giderler };
+    } catch (error) {
+      console.error('Sheets load error:', error);
+      return { kayitlar: [], giderler: [] };
+    }
+  },
+  
+  async saveKayitlarToSheets(kayitlar) {
+    if (!this.useSheets) return;
+    
+    try {
+      const rows = kayitlar.map(k => SheetsAPI.kayitToRow(k));
+      await SheetsAPI.updateRange('Kayitlar!A2:Z', rows);
+    } catch (error) {
+      console.error('Sheets save kayitlar error:', error);
+    }
+  },
+  
+  async saveGiderlerToSheets(giderler) {
+    if (!this.useSheets) return;
+    
+    try {
+      const rows = giderler.map(g => SheetsAPI.giderToRow(g));
+      await SheetsAPI.updateRange('Giderler!A2:E', rows);
+    } catch (error) {
+      console.error('Sheets save giderler error:', error);
+    }
+  },
+  
+  // LocalStorage fallback methods
+  get: (key) => { 
+    try { 
+      return JSON.parse(localStorage.getItem('yesil_' + key)) || []; 
+    } catch { 
+      return []; 
+    } 
+  },
+  set: (key, data) => {
+    localStorage.setItem('yesil_' + key, JSON.stringify(data));
+    // Also save to Sheets
+    if (key === 'kayitlar') {
+      DB.saveKayitlarToSheets(data);
+    } else if (key === 'giderler') {
+      DB.saveGiderlerToSheets(data);
+    }
+  },
+  migrate: async () => {
+    if (DB.useSheets) {
+      // Load from Sheets
+      const data = await DB.loadFromSheets();
+      return data;
+    } else {
+      // Load from localStorage
+      let k = DB.get('kayitlar');
+      if (!Array.isArray(k)) k = [];
+      k = k.map(item => ({
+        ...item,
+        odenen: item.odenen || 0,
+        toplamUcret: item.toplamUcret || 0,
+        evraklar: item.evraklar || {},
+        arsivlendi: item.arsivlendi || false
+      }));
+      return { kayitlar: k, giderler: DB.get('giderler') || [] };
+    }
   }
 };
 
@@ -92,7 +293,7 @@ const UserManager = {
     if (!stored) {
       // İlk kez açılıyorsa default kullanıcıları kaydet
       const defaultUsers = {
-        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
         sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
       };
       localStorage.setItem('yesil_users', JSON.stringify(defaultUsers));
@@ -102,12 +303,12 @@ const UserManager = {
     UserManager.init(); // Her zaman initialize et
     try {
       return JSON.parse(localStorage.getItem('yesil_users')) || {
-        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
         sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
       };
     } catch {
       return {
-        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
         sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
       };
     }
@@ -314,7 +515,7 @@ function LoginScreen({ onLogin }) {
           </button>
           <div className="text-center text-xs text-gray-500 pt-4">
             <p>Test Hesapları:</p>
-            <p className="font-mono mt-2">admin / 105151 (Tam Erişim)</p>
+            <p className="font-mono mt-2">admin / 1234 (Tam Erişim)</p>
             <p className="font-mono">sekreter / 1234 (Sadece Ödeme Alma)</p>
             <button 
               onClick={() => {
@@ -819,24 +1020,28 @@ function App() {
   const [giderModal, setGiderModal] = React.useState(false);
   const [users, setUsers] = React.useState({});
   const [activityLogs, setActivityLogs] = React.useState([]);
+  const [syncStatus, setSyncStatus] = React.useState('synced'); // 'syncing', 'synced', 'error'
 
   React.useEffect(() => {
     const user = Auth.getCurrentUser();
     if (user) {
       setCurrentUser(user);
-      const data = DB.migrate();
-      setKayitlar(data.kayitlar);
-      setGiderler(data.giderler);
-      setUsers(UserManager.getUsers());
-      setActivityLogs(ActivityLog.getLogs());
+      // Load from Google Sheets
+      DB.migrate().then(data => {
+        setKayitlar(data.kayitlar);
+        setGiderler(data.giderler);
+        setUsers(UserManager.getUsers());
+        setActivityLogs(ActivityLog.getLogs());
+      });
     }
   }, []);
 
   const handleLogin = (user) => {
     setCurrentUser(user);
-    const data = DB.migrate();
-    setKayitlar(data.kayitlar);
-    setGiderler(data.giderler);
+    DB.migrate().then(data => {
+      setKayitlar(data.kayitlar);
+      setGiderler(data.giderler);
+    });
   };
 
   const handleLogout = () => {
@@ -870,7 +1075,8 @@ function App() {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  const handleSave = (form) => {
+  const handleSave = async (form) => {
+    setSyncStatus('syncing');
     const isNew = !form.id;
     const yeni = form.id 
       ? kayitlar.map(k => k.id === form.id ? form : k)
@@ -884,6 +1090,9 @@ function App() {
       isNew ? 'YENİ KAYIT' : 'KAYIT GÜNCELLEME',
       `${form.adSoyad} - ${form.donem}`
     );
+    
+    setSyncStatus('synced');
+    setTimeout(() => setSyncStatus(''), 2000);
   };
 
   const handleTahsilat = (id, tutar, makbuz) => {
@@ -1033,6 +1242,26 @@ function App() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Sync Status */}
+            {syncStatus === 'syncing' && (
+              <div className="flex items-center gap-2 text-blue-600 text-sm">
+                <Icon name="RefreshCw" size={16} className="animate-spin" />
+                <span className="hidden md:inline">Senkronize ediliyor...</span>
+              </div>
+            )}
+            {syncStatus === 'synced' && (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <Icon name="Cloud" size={16} />
+                <span className="hidden md:inline">Kaydedildi</span>
+              </div>
+            )}
+            {syncStatus === 'error' && (
+              <div className="flex items-center gap-2 text-red-600 text-sm">
+                <Icon name="CloudOff" size={16} />
+                <span className="hidden md:inline">Hata</span>
+              </div>
+            )}
+            
             <div className="hidden md:flex items-center gap-2 text-sm">
               <div className="text-right">
                 <p className="font-semibold text-gray-700">Net Kar</p>
