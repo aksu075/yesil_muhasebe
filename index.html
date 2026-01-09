@@ -54,90 +54,68 @@ const GIDER_KATEGORILERI = ['Mermi', 'Poligon', 'Eğitmen', 'Kira', 'Personel', 
 
 // Google Sheets Configuration
 const SHEETS_CONFIG = {
-  API_KEY: 'AIzaSyA2X1BM4j-uWPgGdtnlawuT2A7XwbJUGa0',
-  SHEET_ID: '1IjRirsnteszEXLRszKR0BFZiIK3bE1EXzQnVSdOtlKk',
-  RANGES: {
-    KAYITLAR: 'Kayitlar!A:Z',
-    GIDERLER: 'Giderler!A:Z',
-    USERS: 'Users!A:Z',
-    LOGS: 'Logs!A:Z'
+  WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbwZ3CQBQB37fIPJF5u9KdH5jPxcSKUhadxKrb0u1Jny2cpgk2-gFZptMLelFXoJn3F3/exec',
+  SHEET_NAMES: {
+    KAYITLAR: 'Kayitlar',
+    GIDERLER: 'Giderler',
+    USERS: 'Users',
+    LOGS: 'Logs'
   }
 };
 
 // Google Sheets API Helper
 const SheetsAPI = {
-  baseUrl: `https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_CONFIG.SHEET_ID}`,
-  
-  async getRange(range) {
+  async getSheet(sheetName) {
     try {
-      const response = await fetch(
-        `${this.baseUrl}/values/${range}?key=${SHEETS_CONFIG.API_KEY}`
-      );
-      const data = await response.json();
-      return data.values || [];
+      const response = await fetch(`${SHEETS_CONFIG.WEB_APP_URL}?sheet=${sheetName}`);
+      const result = await response.json();
+      if (result.success) {
+        return result.data || [];
+      }
+      console.error('Sheets GET error:', result.error);
+      return [];
     } catch (error) {
       console.error('Sheets GET error:', error);
       return [];
     }
   },
   
-  async updateRange(range, values) {
+  async bulkUpdate(sheetName, rows) {
     try {
-      const response = await fetch(
-        `${this.baseUrl}/values/${range}?valueInputOption=RAW&key=${SHEETS_CONFIG.API_KEY}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values })
-        }
-      );
-      return await response.json();
+      const response = await fetch(SHEETS_CONFIG.WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sheet: sheetName,
+          action: 'bulkUpdate',
+          data: rows
+        })
+      });
+      const result = await response.json();
+      return result.success;
     } catch (error) {
       console.error('Sheets UPDATE error:', error);
-      return null;
-    }
-  },
-  
-  async appendRow(range, values) {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/values/${range}:append?valueInputOption=RAW&key=${SHEETS_CONFIG.API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: [values] })
-        }
-      );
-      return await response.json();
-    } catch (error) {
-      console.error('Sheets APPEND error:', error);
-      return null;
+      return false;
     }
   },
 
-  // Initialize sheets with headers
-  async initializeSheets() {
-    // Kayitlar headers
-    await this.updateRange('Kayitlar!A1:Z1', [[
-      'id', 'adSoyad', 'tcKimlik', 'telefon', 'donem', 'egitimCesidi', 'egitimTuru',
-      'saglikRaporuTarihi', 'kayitTarihi', 'kayitSaati', 'toplamUcret', 'odenen',
-      'vadeTarihi', 'makbuzNo', 'faturaKesildi', 'faturaNo', 'arsivlendi', 'evraklar'
-    ]]);
-    
-    // Giderler headers
-    await this.updateRange('Giderler!A1:E1', [[
-      'id', 'kategori', 'aciklama', 'tutar', 'tarih'
-    ]]);
-    
-    // Users headers
-    await this.updateRange('Users!A1:F1', [[
-      'username', 'password', 'role', 'name', 'active', 'createdAt'
-    ]]);
-    
-    // Logs headers
-    await this.updateRange('Logs!A1:D1', [[
-      'id', 'username', 'action', 'details', 'timestamp'
-    ]]);
+  async appendRow(sheetName, row) {
+    try {
+      const response = await fetch(SHEETS_CONFIG.WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sheet: sheetName,
+          action: 'append',
+          data: row
+        })
+      });
+      const result = await response.json();
+      return result.success;
+    } catch (error) {
+      console.error('Sheets APPEND error:', error);
+      return false;
+    }
   },
 
   rowToKayit(row) {
@@ -157,10 +135,10 @@ const SheetsAPI = {
       odenen: parseFloat(row[11]) || 0,
       vadeTarihi: row[12] || '',
       makbuzNo: row[13] || '',
-      faturaKesildi: row[14] === 'true',
+      faturaKesildi: row[14] === 'true' || row[14] === true,
       faturaNo: row[15] || '',
-      arsivlendi: row[16] === 'true',
-      evraklar: row[17] ? JSON.parse(row[17]) : {}
+      arsivlendi: row[16] === 'true' || row[16] === true,
+      evraklar: row[17] ? (typeof row[17] === 'string' ? JSON.parse(row[17]) : row[17]) : {}
     };
   },
 
@@ -213,12 +191,13 @@ const DB = {
     if (!this.useSheets) return { kayitlar: [], giderler: [] };
     
     try {
-      const kayitlarRows = await SheetsAPI.getRange(SHEETS_CONFIG.RANGES.KAYITLAR);
-      const giderlerRows = await SheetsAPI.getRange(SHEETS_CONFIG.RANGES.GIDERLER);
+      const kayitlarRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR);
+      const giderlerRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.GIDERLER);
       
       const kayitlar = kayitlarRows.slice(1).map(row => SheetsAPI.rowToKayit(row)).filter(Boolean);
       const giderler = giderlerRows.slice(1).map(row => SheetsAPI.rowToGider(row)).filter(Boolean);
       
+      console.log('Loaded from Sheets:', kayitlar.length, 'kayitlar,', giderler.length, 'giderler');
       return { kayitlar, giderler };
     } catch (error) {
       console.error('Sheets load error:', error);
@@ -231,7 +210,8 @@ const DB = {
     
     try {
       const rows = kayitlar.map(k => SheetsAPI.kayitToRow(k));
-      await SheetsAPI.updateRange('Kayitlar!A2:Z', rows);
+      await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR, rows);
+      console.log('Saved to Sheets:', rows.length, 'kayitlar');
     } catch (error) {
       console.error('Sheets save kayitlar error:', error);
     }
@@ -242,7 +222,8 @@ const DB = {
     
     try {
       const rows = giderler.map(g => SheetsAPI.giderToRow(g));
-      await SheetsAPI.updateRange('Giderler!A2:E', rows);
+      await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.GIDERLER, rows);
+      console.log('Saved to Sheets:', rows.length, 'giderler');
     } catch (error) {
       console.error('Sheets save giderler error:', error);
     }
@@ -293,8 +274,8 @@ const UserManager = {
     if (!stored) {
       // İlk kez açılıyorsa default kullanıcıları kaydet
       const defaultUsers = {
-        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
-        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+        aksu: { password: 'Sa4175++', role: 'admin', name: 'Yönetici', active: true },
+        yesil1: { password: 'Deneme123++', role: 'sekreter', name: 'Sekreter', active: true }
       };
       localStorage.setItem('yesil_users', JSON.stringify(defaultUsers));
     }
@@ -303,13 +284,13 @@ const UserManager = {
     UserManager.init(); // Her zaman initialize et
     try {
       return JSON.parse(localStorage.getItem('yesil_users')) || {
-        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
-        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+        aksu: { password: 'Sa4175++', role: 'admin', name: 'Yönetici', active: true },
+        yesil1: { password: 'Deneme123++', role: 'sekreter', name: 'Sekreter', active: true }
       };
     } catch {
       return {
-        admin: { password: '1234', role: 'admin', name: 'Yönetici', active: true },
-        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+        aksu: { password: 'Sa4175++', role: 'admin', name: 'Yönetici', active: true },
+        yesil1: { password: 'Deneme123++', role: 'sekreter', name: 'Sekreter', active: true }
       };
     }
   },
@@ -376,20 +357,15 @@ const Auth = {
   },
   login: (username, password) => {
     const users = UserManager.getUsers();
-    console.log('Auth.login - users:', users);
-    console.log('Auth.login - trying:', username, password);
     const user = users[username];
-    console.log('Auth.login - found user:', user);
     // Active default true olmalı eğer tanımlı değilse
     const isActive = user?.active !== false;
-    console.log('Auth.login - isActive:', isActive);
     if (user && user.password === password && isActive) {
       const userData = { username, role: user.role, name: user.name };
       sessionStorage.setItem('yesil_user', JSON.stringify(userData));
       ActivityLog.log(username, 'GİRİŞ', 'Sisteme giriş yaptı');
       return userData;
     }
-    console.log('Auth.login - failed. user exists:', !!user, 'password match:', user?.password === password, 'is active:', isActive);
     return null;
   },
   logout: () => {
@@ -458,15 +434,10 @@ function LoginScreen({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('Login attempt:', username);
-    const users = UserManager.getUsers();
-    console.log('Available users:', Object.keys(users));
     const user = Auth.login(username, password);
     if (user) {
-      console.log('Login successful:', user);
       onLogin(user);
     } else {
-      console.log('Login failed');
       setError('Kullanıcı adı veya şifre hatalı!');
     }
   };
@@ -513,20 +484,6 @@ function LoginScreen({ onLogin }) {
             <Icon name="LogIn" size={20} className="inline mr-2" />
             Giriş Yap
           </button>
-          <div className="text-center text-xs text-gray-500 pt-4">
-            <p>Test Hesapları:</p>
-            <p className="font-mono mt-2">admin / 1234 (Tam Erişim)</p>
-            <p className="font-mono">sekreter / 1234 (Sadece Ödeme Alma)</p>
-            <button 
-              onClick={() => {
-                localStorage.removeItem('yesil_users');
-                alert('Kullanıcı veritabanı sıfırlandı! Sayfayı yenileyin.');
-                window.location.reload();
-              }}
-              className="mt-3 text-red-500 hover:text-red-700 underline text-xs">
-              Sorun mu var? Kullanıcıları sıfırla
-            </button>
-          </div>
         </form>
       </div>
     </div>
@@ -1922,7 +1879,7 @@ function App() {
                           title={user.active ? 'Devre Dışı Bırak' : 'Aktif Et'}>
                           <Icon name={user.active ? 'UserX' : 'UserCheck'} size={16} />
                         </button>
-                        {username !== 'admin' && username !== currentUser.username && (
+                        {username !== 'aksu' && username !== currentUser.username && (
                           <button
                             onClick={() => {
                               if (confirm(`${user.name} kullanıcısını silmek istediğinize emin misiniz?`)) {
