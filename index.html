@@ -1,0 +1,1805 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Yeşil Güvenlik - Yönetim Paneli v7</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+    body { background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); -webkit-tap-highlight-color: transparent; }
+    
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+    
+    .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.3); }
+    
+    .card-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+    
+    .gradient-green { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+    .gradient-blue { background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%); }
+    .gradient-red { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); }
+    .gradient-amber { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
+    
+    input, select, textarea { font-size: 16px !important; }
+    
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-success { background: #d1fae5; color: #065f46; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-info { background: #dbeafe; color: #1e40af; }
+    
+    .stat-card { position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; top: 0; right: 0; width: 100px; height: 100px; background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+
+// --- SABİTLER ---
+const DONEMLER = ['119. Dönem', '120. Dönem', '121. Dönem', '122. Dönem', '123. Dönem', '124. Dönem'];
+const GIDER_KATEGORILERI = ['Mermi', 'Poligon', 'Eğitmen', 'Kira', 'Personel', 'Mutfak', 'Vergi', 'Diğer'];
+
+const Icon = ({ name, size = 20, className = '' }) => {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (ref.current && lucide[name]) {
+      ref.current.innerHTML = '';
+      const svg = lucide.createElement(lucide[name]);
+      svg.setAttribute('width', size);
+      svg.setAttribute('height', size);
+      if (className) svg.setAttribute('class', className);
+      ref.current.appendChild(svg);
+    }
+  }, [name, size, className]);
+  return React.createElement('span', { ref, style: { display: 'inline-flex', alignItems: 'center' } });
+};
+
+// --- VERİTABANI ---
+const DB = {
+  get: (key) => { try { return JSON.parse(localStorage.getItem('yesil_' + key)) || []; } catch { return []; } },
+  set: (key, data) => localStorage.setItem('yesil_' + key, JSON.stringify(data)),
+  migrate: () => {
+    let k = DB.get('kayitlar');
+    if (!Array.isArray(k)) k = [];
+    k = k.map(item => ({
+      ...item,
+      odenen: item.odenen || 0,
+      toplamUcret: item.toplamUcret || 0,
+      evraklar: item.evraklar || {},
+      arsivlendi: item.arsivlendi || false
+    }));
+    return { kayitlar: k, giderler: DB.get('giderler') || [] };
+  }
+};
+
+// Kullanıcı Yönetimi
+const UserManager = {
+  init: () => {
+    const stored = localStorage.getItem('yesil_users');
+    if (!stored) {
+      // İlk kez açılıyorsa default kullanıcıları kaydet
+      const defaultUsers = {
+        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+      };
+      localStorage.setItem('yesil_users', JSON.stringify(defaultUsers));
+    }
+  },
+  getUsers: () => {
+    UserManager.init(); // Her zaman initialize et
+    try {
+      return JSON.parse(localStorage.getItem('yesil_users')) || {
+        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+      };
+    } catch {
+      return {
+        admin: { password: '105151', role: 'admin', name: 'Yönetici', active: true },
+        sekreter: { password: '1234', role: 'sekreter', name: 'Sekreter', active: true }
+      };
+    }
+  },
+  saveUsers: (users) => {
+    localStorage.setItem('yesil_users', JSON.stringify(users));
+  },
+  addUser: (username, password, role, name) => {
+    const users = UserManager.getUsers();
+    users[username] = { password, role, name, active: true, createdAt: new Date().toISOString() };
+    UserManager.saveUsers(users);
+    return true;
+  },
+  updateUser: (username, updates) => {
+    const users = UserManager.getUsers();
+    if (users[username]) {
+      users[username] = { ...users[username], ...updates };
+      UserManager.saveUsers(users);
+      return true;
+    }
+    return false;
+  },
+  deleteUser: (username) => {
+    const users = UserManager.getUsers();
+    delete users[username];
+    UserManager.saveUsers(users);
+  }
+};
+
+// Activity Logger
+const ActivityLog = {
+  log: (username, action, details = '') => {
+    const logs = ActivityLog.getLogs();
+    logs.unshift({
+      id: Date.now(),
+      username,
+      action,
+      details,
+      timestamp: new Date().toISOString()
+    });
+    // Keep last 500 logs
+    if (logs.length > 500) logs.pop();
+    localStorage.setItem('yesil_activity_logs', JSON.stringify(logs));
+  },
+  getLogs: () => {
+    try {
+      return JSON.parse(localStorage.getItem('yesil_activity_logs')) || [];
+    } catch {
+      return [];
+    }
+  },
+  clearLogs: () => {
+    localStorage.setItem('yesil_activity_logs', JSON.stringify([]));
+  }
+};
+
+const Auth = {
+  getCurrentUser: () => {
+    try {
+      const user = sessionStorage.getItem('yesil_user');
+      return user ? JSON.parse(user) : null;
+    } catch {
+      return null;
+    }
+  },
+  login: (username, password) => {
+    const users = UserManager.getUsers();
+    console.log('Auth.login - users:', users);
+    console.log('Auth.login - trying:', username, password);
+    const user = users[username];
+    console.log('Auth.login - found user:', user);
+    // Active default true olmalı eğer tanımlı değilse
+    const isActive = user?.active !== false;
+    console.log('Auth.login - isActive:', isActive);
+    if (user && user.password === password && isActive) {
+      const userData = { username, role: user.role, name: user.name };
+      sessionStorage.setItem('yesil_user', JSON.stringify(userData));
+      ActivityLog.log(username, 'GİRİŞ', 'Sisteme giriş yaptı');
+      return userData;
+    }
+    console.log('Auth.login - failed. user exists:', !!user, 'password match:', user?.password === password, 'is active:', isActive);
+    return null;
+  },
+  logout: () => {
+    const user = Auth.getCurrentUser();
+    if (user) {
+      ActivityLog.log(user.username, 'ÇIKIŞ', 'Sistemden çıkış yaptı');
+    }
+    sessionStorage.removeItem('yesil_user');
+  },
+  hasAccess: (section) => {
+    const user = Auth.getCurrentUser();
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'sekreter' && section === 'payment') return true;
+    return false;
+  }
+};
+
+const formatCurrency = (v) => (v || 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' });
+const formatDate = (d) => d ? new Date(d).toLocaleDateString('tr-TR') : '-';
+
+// Telefon Formatlama
+const formatPhone = (value) => {
+  const cleaned = value.replace(/\D/g, '');
+  if (cleaned.length === 0) return '';
+  if (cleaned.length <= 1) return `0(${cleaned}`;
+  if (cleaned.length <= 4) return `0(${cleaned.slice(1)}`;
+  if (cleaned.length <= 7) return `0(${cleaned.slice(1, 4)}) ${cleaned.slice(4)}`;
+  if (cleaned.length <= 9) return `0(${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)} ${cleaned.slice(7)}`;
+  return `0(${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)} ${cleaned.slice(7, 9)} ${cleaned.slice(9, 11)}`;
+};
+
+// Excel Export
+const exportToExcel = (data, filename, columns) => {
+  let csv = columns.map(col => col.label).join(',') + '\n';
+  data.forEach(row => {
+    csv += columns.map(col => {
+      let value = row[col.key];
+      if (col.format && typeof col.format === 'function') {
+        value = col.format(row);
+      }
+      return `"${(value || '').toString().replace(/"/g, '""')}"`;
+    }).join(',') + '\n';
+  });
+  
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+};
+
+// --- BADGE COMPONENT ---
+function StatusBadge({ odenen, toplam }) {
+  const kalan = toplam - odenen;
+  if (kalan <= 0) return <span className="badge badge-success"><Icon name="CheckCircle2" size={14} /> Ödendi</span>;
+  if (odenen > 0) return <span className="badge badge-warning"><Icon name="Clock" size={14} /> Taksitli</span>;
+  return <span className="badge badge-danger"><Icon name="AlertCircle" size={14} /> Bekliyor</span>;
+}
+
+// --- LOGIN COMPONENT ---
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [error, setError] = React.useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    console.log('Login attempt:', username);
+    const users = UserManager.getUsers();
+    console.log('Available users:', Object.keys(users));
+    const user = Auth.login(username, password);
+    if (user) {
+      console.log('Login successful:', user);
+      onLogin(user);
+    } else {
+      console.log('Login failed');
+      setError('Kullanıcı adı veya şifre hatalı!');
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="gradient-green p-8 text-center text-white">
+          <Icon name="Lock" size={48} className="mx-auto mb-4" />
+          <h2 className="text-3xl font-bold mb-2">Yeşil Güvenlik</h2>
+          <p className="text-green-100">Eğitim Yönetim Sistemi</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-8 space-y-4">
+          {error && (
+            <div className="bg-red-50 border-2 border-red-200 text-red-700 p-3 rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Kullanıcı Adı</label>
+            <input 
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition"
+              placeholder="Kullanıcı adınızı giriniz"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Şifre</label>
+            <input 
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition"
+              placeholder="Şifrenizi giriniz"
+              required
+            />
+          </div>
+          <button 
+            type="submit"
+            className="w-full gradient-green text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition">
+            <Icon name="LogIn" size={20} className="inline mr-2" />
+            Giriş Yap
+          </button>
+          <div className="text-center text-xs text-gray-500 pt-4">
+            <p>Test Hesapları:</p>
+            <p className="font-mono mt-2">admin / 105151 (Tam Erişim)</p>
+            <p className="font-mono">sekreter / 1234 (Sadece Ödeme Alma)</p>
+            <button 
+              onClick={() => {
+                localStorage.removeItem('yesil_users');
+                alert('Kullanıcı veritabanı sıfırlandı! Sayfayı yenileyin.');
+                window.location.reload();
+              }}
+              className="mt-3 text-red-500 hover:text-red-700 underline text-xs">
+              Sorun mu var? Kullanıcıları sıfırla
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- MODALLAR ---
+
+function TahsilatModal({ student, onClose, onConfirm }) {
+  const kalan = (student.toplamUcret || 0) - (student.odenen || 0);
+  const [tutar, setTutar] = React.useState(kalan);
+  const [makbuz, setMakbuz] = React.useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onConfirm(student.id, parseFloat(tutar), makbuz);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden fade-in">
+        <div className="gradient-blue p-6 text-white">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-bold text-xl flex items-center gap-2 mb-1">
+                <Icon name="Wallet" size={24} /> Tahsilat
+              </h3>
+              <p className="text-blue-100 text-sm">{student.adSoyad}</p>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg transition">
+              <Icon name="X" size={20} />
+            </button>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="bg-blue-50 rounded-2xl p-4 text-center">
+            <p className="text-xs text-blue-600 font-semibold mb-1">Kalan Tutar</p>
+            <p className="text-3xl font-bold text-blue-900">{formatCurrency(kalan)}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Tahsilat Tutarı</label>
+            <input type="number" autoFocus max={kalan} min="0" step="0.01" required
+              className="w-full p-4 border-2 border-blue-200 rounded-xl text-2xl font-bold text-center text-blue-900 focus:border-blue-500 focus:outline-none transition"
+              value={tutar} onChange={e => setTutar(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Makbuz No</label>
+            <input type="text" required placeholder="Makbuz numarası giriniz"
+              className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition"
+              value={makbuz} onChange={e => setMakbuz(e.target.value)} />
+          </div>
+          <button className="w-full gradient-blue text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition">
+            <Icon name="Check" size={20} className="inline mr-2" />
+            Tahsilatı Onayla
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function GiderModal({ onClose, onSave }) {
+  const [form, setForm] = React.useState({ 
+    kategori: 'Mermi', 
+    aciklama: '', 
+    tutar: '', 
+    tarih: new Date().toISOString().split('T')[0] 
+  });
+  
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden fade-in">
+        <div className="gradient-red p-6 text-white">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-xl flex items-center gap-2">
+              <Icon name="TrendingDown" size={24} /> Gider Ekle
+            </h3>
+            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg transition">
+              <Icon name="X" size={20} />
+            </button>
+          </div>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Kategori</label>
+            <select className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:outline-none transition" 
+              value={form.kategori} onChange={e=>setForm({...form, kategori:e.target.value})}>
+              {GIDER_KATEGORILERI.map(k=><option key={k} value={k}>{k}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Açıklama</label>
+            <input className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:outline-none transition" 
+              placeholder="Gider açıklaması" 
+              value={form.aciklama} 
+              onChange={e=>setForm({...form, aciklama:e.target.value})} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Tutar</label>
+            <input type="number" 
+              className="w-full p-4 border-2 border-gray-200 rounded-xl font-bold text-red-600 text-xl focus:border-red-500 focus:outline-none transition" 
+              placeholder="0.00" 
+              value={form.tutar} 
+              onChange={e=>setForm({...form, tutar:e.target.value})} />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Tarih</label>
+            <input type="date" 
+              className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:outline-none transition" 
+              value={form.tarih} 
+              onChange={e=>setForm({...form, tarih:e.target.value})} />
+          </div>
+          <button onClick={()=>onSave(form)} 
+            className="w-full gradient-red text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition">
+            <Icon name="Save" size={20} className="inline mr-2" />
+            Gideri Kaydet
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- KARTLAR ---
+
+function OgrenciCard({ item, onEdit }) {
+  const evrakTamamlandi = Object.values(item.evraklar || {}).filter(Boolean).length;
+  const evrakToplam = Object.keys(item.evraklar || {}).length;
+  
+  return (
+    <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden card-hover">
+      <div className="gradient-green p-4">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h3 className="font-bold text-white text-lg mb-1">{item.adSoyad}</h3>
+            <p className="text-green-100 text-sm flex items-center gap-1">
+              <Icon name="Calendar" size={14} /> {item.donem}
+            </p>
+          </div>
+          <button onClick={() => onEdit(item)} 
+            className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+            <Icon name="Edit2" size={18} className="text-white" />
+          </button>
+        </div>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs text-gray-500 mb-1">TC Kimlik</p>
+            <p className="font-semibold text-sm">{item.tcKimlik}</p>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs text-gray-500 mb-1">Telefon</p>
+            <p className="font-semibold text-sm">{item.telefon}</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center justify-between bg-emerald-50 rounded-xl p-3">
+          <span className="text-sm font-semibold text-emerald-700">Eğitim</span>
+          <span className="text-sm font-bold text-emerald-900">{item.egitimCesidi} - {item.egitimTuru}</span>
+        </div>
+        
+        <div className="flex items-center justify-between pt-2 border-t">
+          <span className="text-xs text-gray-500">Evrak Durumu</span>
+          <span className="font-semibold text-sm text-gray-700">{evrakTamamlandi}/{evrakToplam}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MuhasebeCard({ item, onEdit, onTahsilat }) {
+  const kalan = (item.toplamUcret || 0) - (item.odenen || 0);
+  const oran = item.toplamUcret > 0 ? ((item.odenen / item.toplamUcret) * 100) : 0;
+  
+  return (
+    <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden card-hover">
+      <div className="p-4 border-b bg-gradient-to-r from-blue-50 to-white">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex-1">
+            <h3 className="font-bold text-gray-900 text-lg">{item.adSoyad}</h3>
+            <p className="text-gray-500 text-sm">{item.donem}</p>
+          </div>
+          <StatusBadge odenen={item.odenen} toplam={item.toplamUcret} />
+        </div>
+        
+        <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+          <div className="h-full gradient-blue transition-all duration-500" 
+            style={{ width: `${oran}%` }}></div>
+        </div>
+      </div>
+      
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-gray-500 mb-1">Toplam Ücret</p>
+            <p className="font-bold text-gray-900">{formatCurrency(item.toplamUcret)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 mb-1">Ödenen</p>
+            <p className="font-bold text-green-600">{formatCurrency(item.odenen)}</p>
+          </div>
+        </div>
+        
+        {kalan > 0 && (
+          <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
+            <p className="text-xs text-amber-700 mb-1">Kalan Borç</p>
+            <p className="font-bold text-amber-900 text-xl">{formatCurrency(kalan)}</p>
+          </div>
+        )}
+        
+        <div className="flex gap-2 pt-2">
+          {kalan > 0 && (
+            <button onClick={() => onTahsilat(item)} 
+              className="flex-1 gradient-blue text-white py-2.5 rounded-xl font-semibold text-sm shadow hover:shadow-lg transition">
+              <Icon name="Wallet" size={16} className="inline mr-1" />
+              Tahsilat
+            </button>
+          )}
+          <button onClick={() => onEdit(item)} 
+            className="px-4 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+            <Icon name="Edit2" size={16} className="text-gray-600" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- KAYIT FORMU ---
+
+function KayitForm({ editItem, viewMode, onClose, onSave }) {
+  const [form, setForm] = React.useState(editItem || {
+    adSoyad: '', tcKimlik: '', telefon: '', donem: DONEMLER[0],
+    egitimCesidi: 'Silahlı', egitimTuru: 'Temel', saglikRaporuTarihi: '', 
+    kayitTarihi: '', kayitSaati: '',
+    toplamUcret: 0, odenen: 0, vadeTarihi: '', makbuzNo: '', faturaKesildi: false, faturaNo: '',
+    evraklar: {}
+  });
+
+  const handleChange = (f,v) => setForm(p=>({...p, [f]:v}));
+  const toggleEvrak = (key) => setForm(p=>({...p, evraklar: {...p.evraklar, [key]: !p.evraklar[key]} }));
+
+  const validateTC = (tc) => {
+    return /^\d{11}$/.test(tc);
+  };
+
+  const validatePhone = (phone) => {
+    // Remove spaces and parentheses for validation
+    const cleaned = phone.replace(/[\s()-]/g, '');
+    return /^05\d{9}$/.test(cleaned);
+  };
+
+  const handleSaveWithDateTime = () => {
+    if (form.tcKimlik && !validateTC(form.tcKimlik)) {
+      alert('TC Kimlik No 11 haneli rakamlardan oluşmalıdır!');
+      return;
+    }
+    
+    if (form.telefon && !validatePhone(form.telefon)) {
+      alert('Telefon numarası 10 haneli olmalı ve 5 ile başlamalıdır!');
+      return;
+    }
+    
+    const now = new Date();
+    const updatedForm = {
+      ...form,
+      kayitTarihi: now.toISOString().split('T')[0],
+      kayitSaati: now.toTimeString().split(' ')[0].substring(0, 5)
+    };
+    onSave(updatedForm);
+    alert('✅ Kayıt başarıyla kaydedildi!');
+  };
+
+  const showPersonal = viewMode === 'new' || viewMode === 'personal';
+  const showFinancial = viewMode === 'new' || viewMode === 'financial';
+
+  return (
+    <div className={`${viewMode === 'new' ? 'static' : 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm'}`}>
+      <div className={`bg-white rounded-3xl w-full ${viewMode === 'new' ? 'max-w-5xl mx-auto shadow-lg border' : 'max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl'}`}>
+        
+        {viewMode !== 'new' && (
+          <div className="p-5 border-b sticky top-0 bg-white z-10 flex justify-between items-center rounded-t-3xl">
+            <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2">
+              <Icon name={viewMode === 'personal' ? 'User' : 'Receipt'} size={24} />
+              {viewMode === 'personal' ? 'Öğrenci Bilgileri' : 'Muhasebe Kaydı'}
+            </h3>
+            <button onClick={onClose} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
+              <Icon name="X" size={20} />
+            </button>
+          </div>
+        )}
+
+        <div className="p-6">
+          {showPersonal && (
+            <div className="mb-8">
+              <h4 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2">
+                <Icon name="UserCircle" size={20} className="text-green-600" />
+                Kişisel Bilgiler
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Ad Soyad</label>
+                  <input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    placeholder="Ad Soyad" 
+                    value={form.adSoyad} 
+                    onChange={e=>handleChange('adSoyad',e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">TC Kimlik No</label>
+                  <input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    placeholder="11 haneli TC Kimlik No" 
+                    value={form.tcKimlik} 
+                    onChange={e=>handleChange('tcKimlik',e.target.value)}
+                    pattern="\d{11}"
+                    maxLength="11"
+                    title="TC Kimlik No 11 haneli rakamlardan oluşmalıdır" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Telefon</label>
+                  <input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    placeholder="0(5__) ___ __ __" 
+                    value={form.telefon} 
+                    onChange={e=>{
+                      const formatted = formatPhone(e.target.value);
+                      handleChange('telefon', formatted);
+                    }}
+                    maxLength="17"
+                    title="Telefon formatı: 0(5__) ___ __ __" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Dönem</label>
+                  <select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    value={form.donem} 
+                    onChange={e=>handleChange('donem',e.target.value)}>
+                    {DONEMLER.map(d=><option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Eğitim Çeşidi</label>
+                  <select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    value={form.egitimCesidi} 
+                    onChange={e=>handleChange('egitimCesidi',e.target.value)}>
+                    <option>Silahlı</option>
+                    <option>Silahsız</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Eğitim Türü</label>
+                  <select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    value={form.egitimTuru} 
+                    onChange={e=>handleChange('egitimTuru',e.target.value)}>
+                    <option>Temel</option>
+                    <option>Yenileme</option>
+                    <option>Yükseltme</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Sağlık Raporu Tarihi</label>
+                  <input type="date" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" 
+                    value={form.saglikRaporuTarihi} 
+                    onChange={e=>handleChange('saglikRaporuTarihi',e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Kayıt Tarihi</label>
+                  <input type="date" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl bg-gray-50" 
+                    value={form.kayitTarihi} 
+                    readOnly
+                    placeholder="Otomatik" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Kayıt Saati</label>
+                  <input type="time" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl bg-gray-50" 
+                    value={form.kayitSaati} 
+                    readOnly
+                    placeholder="Otomatik" />
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <h5 className="font-semibold text-gray-700 mb-3">Evrak Kontrol</h5>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {['Nüfus Fotokopisi', 'Vesikalık Fotoğraf', 'Sağlık Raporu', 'İkametgah', 'Diploma', 'Adli Sicil'].map(evrak => (
+                    <label key={evrak} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition">
+                      <input type="checkbox" 
+                        checked={form.evraklar[evrak] || false} 
+                        onChange={() => toggleEvrak(evrak)}
+                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500" />
+                      <span className="text-sm font-medium text-gray-700">{evrak}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showFinancial && (
+            <div>
+              <h4 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2">
+                <Icon name="Receipt" size={20} className="text-blue-600" />
+                Muhasebe Bilgileri
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Toplam Ücret</label>
+                  <input type="number" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition font-bold text-lg" 
+                    placeholder="0.00" 
+                    value={form.toplamUcret} 
+                    onChange={e=>handleChange('toplamUcret',parseFloat(e.target.value)||0)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Ödenen Tutar</label>
+                  <input type="number" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition font-bold text-lg text-green-600" 
+                    placeholder="0.00" 
+                    value={form.odenen} 
+                    onChange={e=>handleChange('odenen',parseFloat(e.target.value)||0)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Vade Tarihi</label>
+                  <input type="date" 
+                    className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
+                    value={form.vadeTarihi} 
+                    onChange={e=>handleChange('vadeTarihi',e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Makbuz No</label>
+                  <input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
+                    placeholder="Makbuz No" 
+                    value={form.makbuzNo} 
+                    onChange={e=>handleChange('makbuzNo',e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl cursor-pointer hover:bg-blue-100 transition">
+                    <input type="checkbox" 
+                      checked={form.faturaKesildi} 
+                      onChange={e=>handleChange('faturaKesildi',e.target.checked)}
+                      className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                    <span className="font-semibold text-blue-900">Fatura Kesildi</span>
+                  </label>
+                </div>
+                {form.faturaKesildi && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Fatura No</label>
+                    <input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" 
+                      placeholder="Fatura Numarası" 
+                      value={form.faturaNo} 
+                      onChange={e=>handleChange('faturaNo',e.target.value)} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-8 pt-6 border-t">
+            {viewMode !== 'new' && (
+              <button onClick={onClose} 
+                className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition">
+                İptal
+              </button>
+            )}
+            <button onClick={handleSaveWithDateTime} 
+              className="flex-1 gradient-green text-white py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition">
+              <Icon name="Save" size={20} className="inline mr-2" />
+              Kaydet
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- ANA UYGULAMA ---
+
+function App() {
+  const [currentUser, setCurrentUser] = React.useState(null);
+  const [activeTab, setActiveTab] = React.useState('dashboard');
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [kayitlar, setKayitlar] = React.useState([]);
+  const [giderler, setGiderler] = React.useState([]);
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [filterDonem, setFilterDonem] = React.useState('Tümü');
+  const [viewMode, setViewMode] = React.useState('card'); // 'card' or 'table'
+  const [editModal, setEditModal] = React.useState({open:false, item:null, mode:null});
+  const [tahsilatModal, setTahsilatModal] = React.useState(null);
+  const [giderModal, setGiderModal] = React.useState(false);
+  const [users, setUsers] = React.useState({});
+  const [activityLogs, setActivityLogs] = React.useState([]);
+
+  React.useEffect(() => {
+    const user = Auth.getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+      const data = DB.migrate();
+      setKayitlar(data.kayitlar);
+      setGiderler(data.giderler);
+      setUsers(UserManager.getUsers());
+      setActivityLogs(ActivityLog.getLogs());
+    }
+  }, []);
+
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    const data = DB.migrate();
+    setKayitlar(data.kayitlar);
+    setGiderler(data.giderler);
+  };
+
+  const handleLogout = () => {
+    Auth.logout();
+    setCurrentUser(null);
+    setKayitlar([]);
+    setGiderler([]);
+  };
+
+  // MENU definition must be before early return
+  const MENU = currentUser ? [
+    { id: 'dashboard', label: 'Ana Sayfa', icon: 'LayoutDashboard', roles: ['admin'] },
+    { id: 'yeni_kayit', label: 'Yeni Kayıt', icon: 'UserPlus', roles: ['admin', 'sekreter'] },
+    { id: 'kursiyer', label: 'Öğrenciler', icon: 'Users', roles: ['admin', 'sekreter'] },
+    { id: 'muhasebe', label: 'Muhasebe', icon: 'Receipt', roles: ['admin'] },
+    { id: 'giderler', label: 'Giderler', icon: 'TrendingDown', roles: ['admin'] },
+    { id: 'arsiv', label: 'Arşiv', icon: 'Archive', roles: ['admin'] },
+    { id: 'yonetim', label: 'Yönetim Paneli', icon: 'Settings', roles: ['admin'] },
+  ].filter(item => item.roles.includes(currentUser.role)) : [];
+
+  // Set initial tab based on role
+  React.useEffect(() => {
+    if (currentUser && currentUser.role === 'sekreter') {
+      setActiveTab('yeni_kayit');
+    } else if (currentUser && currentUser.role === 'admin') {
+      setActiveTab('dashboard');
+    }
+  }, [currentUser]);
+
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  const handleSave = (form) => {
+    const isNew = !form.id;
+    const yeni = form.id 
+      ? kayitlar.map(k => k.id === form.id ? form : k)
+      : [...kayitlar, { ...form, id: Date.now() }];
+    setKayitlar(yeni);
+    DB.set('kayitlar', yeni);
+    setEditModal({open:false, item:null, mode:null});
+    
+    ActivityLog.log(
+      currentUser.username, 
+      isNew ? 'YENİ KAYIT' : 'KAYIT GÜNCELLEME',
+      `${form.adSoyad} - ${form.donem}`
+    );
+  };
+
+  const handleTahsilat = (id, tutar, makbuz) => {
+    const ogrenci = kayitlar.find(k => k.id === id);
+    const yeni = kayitlar.map(k => k.id === id ? {
+      ...k,
+      odenen: (k.odenen || 0) + tutar,
+      makbuzNo: makbuz
+    } : k);
+    setKayitlar(yeni);
+    DB.set('kayitlar', yeni);
+    setTahsilatModal(null);
+    
+    ActivityLog.log(
+      currentUser.username,
+      'TAHSİLAT',
+      `${ogrenci?.adSoyad} - ${formatCurrency(tutar)} - Makbuz: ${makbuz}`
+    );
+  };
+
+  const saveGider = (form) => {
+    if (!form.tutar || !form.aciklama) return;
+    const yeni = [...giderler, { ...form, id: Date.now(), tutar: parseFloat(form.tutar) }];
+    setGiderler(yeni);
+    DB.set('giderler', yeni);
+    setGiderModal(false);
+    
+    ActivityLog.log(
+      currentUser.username,
+      'GİDER EKLEME',
+      `${form.kategori} - ${formatCurrency(form.tutar)} - ${form.aciklama}`
+    );
+  };
+
+  const deleteGider = (id) => {
+    if (!confirm('Bu gideri silmek istediğinize emin misiniz?')) return;
+    const gider = giderler.find(g => g.id === id);
+    const yeni = giderler.filter(g => g.id !== id);
+    setGiderler(yeni);
+    DB.set('giderler', yeni);
+    
+    ActivityLog.log(
+      currentUser.username,
+      'GİDER SİLME',
+      `${gider?.kategori} - ${formatCurrency(gider?.tutar)}`
+    );
+  };
+
+  const aktifler = kayitlar.filter(k => !k.arsivlendi);
+  
+  // Arama ve Filtreleme
+  const filteredKayitlar = aktifler.filter(k => {
+    const matchSearch = k.adSoyad.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                       k.tcKimlik.includes(searchTerm) ||
+                       k.telefon.includes(searchTerm);
+    const matchDonem = filterDonem === 'Tümü' || k.donem === filterDonem;
+    return matchSearch && matchDonem;
+  });
+
+  // İstatistikler
+  const toplamGelir = aktifler.reduce((a,b)=>a+(parseFloat(b.odenen)||0),0);
+  const toplamGider = giderler.reduce((a,b)=>a+(b.tutar||0),0);
+  const bekleyenAlacak = aktifler.reduce((a,b)=>a+((b.toplamUcret||0)-(b.odenen||0)),0);
+  const netKar = toplamGelir - toplamGider;
+
+  // Son Ödemeler
+  const sonOdemeler = aktifler
+    .filter(k => k.odenen > 0)
+    .sort((a,b) => b.id - a.id)
+    .slice(0, 5);
+
+  // Yaklaşan Vadeler
+  const yaklasanVadeler = aktifler
+    .filter(k => k.vadeTarihi && ((k.toplamUcret||0) - (k.odenen||0)) > 0)
+    .sort((a,b) => new Date(a.vadeTarihi) - new Date(b.vadeTarihi))
+    .slice(0, 5);
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar */}
+      <aside className={`${menuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static top-0 left-0 h-full w-72 gradient-green text-white z-50 transition-transform duration-300 shadow-2xl slide-in flex flex-col`}>
+        <div className="p-6 border-b border-white/20">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold mb-1">Yeşil Güvenlik</h1>
+              <p className="text-green-100 text-sm">Eğitim Yönetim Sistemi</p>
+            </div>
+            <button onClick={()=>setMenuOpen(false)} className="md:hidden p-2 hover:bg-white/10 rounded-lg">
+              <Icon name="X" size={20} />
+            </button>
+          </div>
+        </div>
+        
+        <nav className="p-4 space-y-1 flex-1">
+          {MENU.map(m => (
+            <button key={m.id} 
+              onClick={()=>{setActiveTab(m.id); setMenuOpen(false);}}
+              className={`w-full flex items-center gap-3 p-4 rounded-xl font-semibold transition ${
+                activeTab===m.id 
+                  ? 'bg-white text-green-700 shadow-lg' 
+                  : 'text-white hover:bg-white/10'
+              }`}>
+              <Icon name={m.icon} size={20} />
+              {m.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-white/20">
+          <div className="bg-white/10 rounded-xl p-4 mb-3">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                <Icon name="User" size={20} />
+              </div>
+              <div>
+                <p className="font-semibold">{currentUser.name}</p>
+                <p className="text-xs text-green-100">{currentUser.role === 'admin' ? 'Yönetici' : 'Sekreter'}</p>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 p-3 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition">
+            <Icon name="LogOut" size={18} />
+            Çıkış Yap
+          </button>
+        </div>
+      </aside>
+
+      {/* Overlay */}
+      {menuOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={()=>setMenuOpen(false)}></div>
+      )}
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col h-full w-full relative overflow-hidden">
+        {/* Header */}
+        <header className="glass h-20 border-b border-white/20 flex items-center justify-between px-4 md:px-8 z-30 shadow-sm">
+          <div className="flex items-center gap-4">
+            <button onClick={()=>setMenuOpen(!menuOpen)} className="md:hidden p-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition">
+              <Icon name="Menu" size={20} />
+            </button>
+            <div>
+              <h2 className="font-bold text-xl text-gray-800">{MENU.find(m=>m.id===activeTab)?.label}</h2>
+              <p className="text-sm text-gray-500 hidden md:block">{aktifler.length} aktif öğrenci</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2 text-sm">
+              <div className="text-right">
+                <p className="font-semibold text-gray-700">Net Kar</p>
+                <p className={`font-bold ${netKar >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {formatCurrency(netKar)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-auto p-4 md:p-8">
+          
+          {/* DASHBOARD */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6 fade-in">
+              {/* Stat Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="stat-card gradient-green text-white p-6 rounded-2xl shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Icon name="TrendingUp" size={24} />
+                    </div>
+                    <p className="text-green-100 text-sm font-semibold">Toplam Gelir</p>
+                  </div>
+                  <p className="text-3xl font-bold">{formatCurrency(toplamGelir)}</p>
+                </div>
+                
+                <div className="stat-card gradient-red text-white p-6 rounded-2xl shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Icon name="TrendingDown" size={24} />
+                    </div>
+                    <p className="text-red-100 text-sm font-semibold">Toplam Gider</p>
+                  </div>
+                  <p className="text-3xl font-bold">{formatCurrency(toplamGider)}</p>
+                </div>
+                
+                <div className="stat-card gradient-amber text-white p-6 rounded-2xl shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Icon name="Clock" size={24} />
+                    </div>
+                    <p className="text-amber-100 text-sm font-semibold">Bekleyen Alacak</p>
+                  </div>
+                  <p className="text-3xl font-bold">{formatCurrency(bekleyenAlacak)}</p>
+                </div>
+                
+                <div className={`stat-card ${netKar >= 0 ? 'gradient-blue' : 'gradient-red'} text-white p-6 rounded-2xl shadow-lg`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-3 bg-white/20 rounded-xl">
+                      <Icon name={netKar >= 0 ? 'PiggyBank' : 'AlertTriangle'} size={24} />
+                    </div>
+                    <p className="text-blue-100 text-sm font-semibold">Net Kar/Zarar</p>
+                  </div>
+                  <p className="text-3xl font-bold">{formatCurrency(netKar)}</p>
+                </div>
+              </div>
+
+              {/* Son İşlemler */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Son Ödemeler */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                  <div className="bg-gradient-to-r from-green-50 to-white p-4 border-b">
+                    <h3 className="font-bold text-lg flex items-center gap-2 text-gray-800">
+                      <Icon name="Receipt" size={20} className="text-green-600" />
+                      Son Ödemeler
+                    </h3>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    {sonOdemeler.length > 0 ? sonOdemeler.map(k => (
+                      <div key={k.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                        <div>
+                          <p className="font-semibold text-gray-900">{k.adSoyad}</p>
+                          <p className="text-xs text-gray-500">{k.donem}</p>
+                        </div>
+                        <p className="font-bold text-green-600">{formatCurrency(k.odenen)}</p>
+                      </div>
+                    )) : (
+                      <p className="text-center text-gray-400 py-8">Henüz ödeme yok</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Yaklaşan Vadeler */}
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                  <div className="bg-gradient-to-r from-amber-50 to-white p-4 border-b">
+                    <h3 className="font-bold text-lg flex items-center gap-2 text-gray-800">
+                      <Icon name="Calendar" size={20} className="text-amber-600" />
+                      Yaklaşan Vadeler
+                    </h3>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    {yaklasanVadeler.length > 0 ? yaklasanVadeler.map(k => (
+                      <div key={k.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                        <div>
+                          <p className="font-semibold text-gray-900">{k.adSoyad}</p>
+                          <p className="text-xs text-gray-500">{formatDate(k.vadeTarihi)}</p>
+                        </div>
+                        <p className="font-bold text-amber-600">{formatCurrency((k.toplamUcret||0) - (k.odenen||0))}</p>
+                      </div>
+                    )) : (
+                      <p className="text-center text-gray-400 py-8">Vadesi yaklaşan borç yok</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Hızlı Eylemler */}
+              <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                <h3 className="font-bold text-lg mb-4 text-gray-800">Hızlı Erişim</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <button onClick={()=>setActiveTab('yeni_kayit')} 
+                    className="p-4 bg-green-50 hover:bg-green-100 rounded-xl text-center transition group">
+                    <Icon name="UserPlus" size={32} className="text-green-600 mx-auto mb-2 group-hover:scale-110 transition" />
+                    <p className="font-semibold text-sm text-gray-700">Yeni Kayıt</p>
+                  </button>
+                  <button onClick={()=>setActiveTab('muhasebe')} 
+                    className="p-4 bg-blue-50 hover:bg-blue-100 rounded-xl text-center transition group">
+                    <Icon name="Receipt" size={32} className="text-blue-600 mx-auto mb-2 group-hover:scale-110 transition" />
+                    <p className="font-semibold text-sm text-gray-700">Muhasebe</p>
+                  </button>
+                  <button onClick={()=>setGiderModal(true)} 
+                    className="p-4 bg-red-50 hover:bg-red-100 rounded-xl text-center transition group">
+                    <Icon name="TrendingDown" size={32} className="text-red-600 mx-auto mb-2 group-hover:scale-110 transition" />
+                    <p className="font-semibold text-sm text-gray-700">Gider Ekle</p>
+                  </button>
+                  <button onClick={()=>setActiveTab('kursiyer')} 
+                    className="p-4 bg-purple-50 hover:bg-purple-100 rounded-xl text-center transition group">
+                    <Icon name="Users" size={32} className="text-purple-600 mx-auto mb-2 group-hover:scale-110 transition" />
+                    <p className="font-semibold text-sm text-gray-700">Öğrenciler</p>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* YENİ KAYIT */}
+          {activeTab === 'yeni_kayit' && (
+            <div className="fade-in pb-10">
+              <div className="max-w-5xl mx-auto mb-6">
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">Yeni Öğrenci Kaydı</h2>
+                <p className="text-gray-500">Öğrenci kimlik ve muhasebe bilgilerini eksiksiz giriniz.</p>
+              </div>
+              <KayitForm viewMode="new" editItem={null} onSave={handleSave} />
+            </div>
+          )}
+
+          {/* ÖĞRENCİLER */}
+          {activeTab === 'kursiyer' && (
+            <div className="fade-in">
+              <div className="mb-6 space-y-4">
+                <div className="flex flex-col md:flex-row gap-3">
+                  <div className="flex-1 relative">
+                    <Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition"
+                      placeholder="Ad, TC veya telefon ile ara..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition"
+                    value={filterDonem}
+                    onChange={e => setFilterDonem(e.target.value)}>
+                    <option>Tümü</option>
+                    {DONEMLER.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <button
+                    onClick={() => exportToExcel(filteredKayitlar, 'ogrenciler', [
+                      { key: 'adSoyad', label: 'Ad Soyad' },
+                      { key: 'tcKimlik', label: 'TC Kimlik' },
+                      { key: 'telefon', label: 'Telefon' },
+                      { key: 'donem', label: 'Dönem' },
+                      { key: 'egitimCesidi', label: 'Eğitim Çeşidi' },
+                      { key: 'egitimTuru', label: 'Eğitim Türü' },
+                      { key: 'kayitTarihi', label: 'Kayıt Tarihi', format: (row) => formatDate(row.kayitTarihi) },
+                      { key: 'kayitSaati', label: 'Kayıt Saati' }
+                    ])}
+                    className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition">
+                    <Icon name="Download" size={18} />
+                    Excel
+                  </button>
+                  <div className="hidden md:flex gap-2 bg-gray-100 p-1 rounded-xl">
+                    <button 
+                      onClick={() => setViewMode('card')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        viewMode === 'card' 
+                          ? 'bg-white text-green-600 shadow' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}>
+                      <Icon name="LayoutGrid" size={18} className="inline mr-1" />
+                      Kart
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('table')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        viewMode === 'table' 
+                          ? 'bg-white text-green-600 shadow' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}>
+                      <Icon name="Table" size={18} className="inline mr-1" />
+                      Tablo
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500">{filteredKayitlar.length} öğrenci bulundu</p>
+              </div>
+              
+              {/* KART GÖRÜNÜMÜ */}
+              {viewMode === 'card' && (
+                <>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filteredKayitlar.map(k => (
+                      <OgrenciCard key={k.id} item={k} onEdit={(item)=>setEditModal({ open: true, item, mode: 'personal' })} />
+                    ))}
+                  </div>
+                  {filteredKayitlar.length === 0 && (
+                    <div className="text-center py-16">
+                      <Icon name="Search" size={64} className="text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-400 font-semibold">Öğrenci bulunamadı</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* TABLO GÖRÜNÜMÜ */}
+              {viewMode === 'table' && (
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gradient-to-r from-green-50 to-white border-b-2 border-green-100">
+                        <tr>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Ad Soyad</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">TC Kimlik</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Telefon</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Dönem</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Eğitim</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Evrak</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Kayıt</th>
+                          <th className="px-4 py-4 text-center text-sm font-bold text-gray-700">İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {filteredKayitlar.map(k => {
+                          const evrakTamamlandi = Object.values(k.evraklar || {}).filter(Boolean).length;
+                          const evrakToplam = Object.keys(k.evraklar || {}).length;
+                          return (
+                            <tr key={k.id} className="hover:bg-gray-50 transition">
+                              <td className="px-4 py-4">
+                                <p className="font-semibold text-gray-900">{k.adSoyad}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-sm text-gray-600 font-mono">{k.tcKimlik}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-sm text-gray-600">{k.telefon}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="badge badge-info">{k.donem}</span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-sm font-medium text-gray-700">{k.egitimCesidi}</p>
+                                <p className="text-xs text-gray-500">{k.egitimTuru}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                                    <div 
+                                      className="h-full bg-green-500 transition-all"
+                                      style={{ width: `${evrakToplam > 0 ? (evrakTamamlandi / evrakToplam * 100) : 0}%` }}
+                                    ></div>
+                                  </div>
+                                  <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">
+                                    {evrakTamamlandi}/{evrakToplam}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-xs text-gray-500">{formatDate(k.kayitTarihi)}</p>
+                                <p className="text-xs text-gray-400">{k.kayitSaati || '-'}</p>
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                <button 
+                                  onClick={() => setEditModal({ open: true, item: k, mode: 'personal' })}
+                                  className="p-2 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg transition">
+                                  <Icon name="Edit2" size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {filteredKayitlar.length === 0 && (
+                    <div className="text-center py-16">
+                      <Icon name="Search" size={64} className="text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-400 font-semibold">Öğrenci bulunamadı</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MUHASEBE */}
+          {activeTab === 'muhasebe' && currentUser.role === 'admin' && (
+            <div className="fade-in">
+              <div className="mb-6 space-y-4">
+                <div className="flex flex-col md:flex-row gap-3">
+                  <div className="flex-1 relative">
+                    <Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input 
+                      className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition"
+                      placeholder="Öğrenci ara..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition"
+                    value={filterDonem}
+                    onChange={e => setFilterDonem(e.target.value)}>
+                    <option>Tümü</option>
+                    {DONEMLER.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <button
+                    onClick={() => exportToExcel(filteredKayitlar, 'muhasebe', [
+                      { key: 'adSoyad', label: 'Ad Soyad' },
+                      { key: 'donem', label: 'Dönem' },
+                      { key: 'toplamUcret', label: 'Toplam Ücret', format: (row) => formatCurrency(row.toplamUcret) },
+                      { key: 'odenen', label: 'Ödenen', format: (row) => formatCurrency(row.odenen) },
+                      { key: 'kalan', label: 'Kalan', format: (row) => formatCurrency((row.toplamUcret||0) - (row.odenen||0)) },
+                      { key: 'vadeTarihi', label: 'Vade Tarihi', format: (row) => formatDate(row.vadeTarihi) },
+                      { key: 'makbuzNo', label: 'Makbuz No' }
+                    ])}
+                    className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition">
+                    <Icon name="Download" size={18} />
+                    Excel İndir
+                  </button>
+                  <div className="hidden md:flex gap-2 bg-gray-100 p-1 rounded-xl">
+                    <button 
+                      onClick={() => setViewMode('card')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        viewMode === 'card' 
+                          ? 'bg-white text-blue-600 shadow' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}>
+                      <Icon name="LayoutGrid" size={18} className="inline mr-1" />
+                      Kart
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('table')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        viewMode === 'table' 
+                          ? 'bg-white text-blue-600 shadow' 
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}>
+                      <Icon name="Table" size={18} className="inline mr-1" />
+                      Tablo
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500">{filteredKayitlar.length} öğrenci bulundu</p>
+              </div>
+              
+              {/* KART GÖRÜNÜMÜ */}
+              {viewMode === 'card' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredKayitlar.map(k => (
+                    <MuhasebeCard key={k.id} item={k} 
+                      onEdit={(item)=>setEditModal({ open: true, item, mode: 'financial' })}
+                      onTahsilat={(item)=>setTahsilatModal(item)} 
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* TABLO GÖRÜNÜMÜ */}
+              {viewMode === 'table' && (
+                <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gradient-to-r from-blue-50 to-white border-b-2 border-blue-100">
+                        <tr>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Ad Soyad</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Dönem</th>
+                          <th className="px-4 py-4 text-right text-sm font-bold text-gray-700">Toplam</th>
+                          <th className="px-4 py-4 text-right text-sm font-bold text-gray-700">Ödenen</th>
+                          <th className="px-4 py-4 text-right text-sm font-bold text-gray-700">Kalan</th>
+                          <th className="px-4 py-4 text-left text-sm font-bold text-gray-700">Durum</th>
+                          <th className="px-4 py-4 text-center text-sm font-bold text-gray-700">İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {filteredKayitlar.map(k => {
+                          const kalan = (k.toplamUcret||0) - (k.odenen||0);
+                          return (
+                            <tr key={k.id} className="hover:bg-gray-50 transition">
+                              <td className="px-4 py-4">
+                                <p className="font-semibold text-gray-900">{k.adSoyad}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="badge badge-info">{k.donem}</span>
+                              </td>
+                              <td className="px-4 py-4 text-right">
+                                <p className="font-semibold text-gray-900">{formatCurrency(k.toplamUcret)}</p>
+                              </td>
+                              <td className="px-4 py-4 text-right">
+                                <p className="font-semibold text-green-600">{formatCurrency(k.odenen)}</p>
+                              </td>
+                              <td className="px-4 py-4 text-right">
+                                <p className={`font-bold ${kalan > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                  {formatCurrency(kalan)}
+                                </p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <StatusBadge odenen={k.odenen} toplam={k.toplamUcret} />
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center justify-center gap-2">
+                                  {kalan > 0 && (
+                                    <button 
+                                      onClick={() => setTahsilatModal(k)}
+                                      className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition">
+                                      <Icon name="Wallet" size={16} />
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => setEditModal({ open: true, item: k, mode: 'financial' })}
+                                    className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg transition">
+                                    <Icon name="Edit2" size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {filteredKayitlar.length === 0 && (
+                    <div className="text-center py-16">
+                      <Icon name="Search" size={64} className="text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-400 font-semibold">Öğrenci bulunamadı</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* GİDERLER */}
+          {activeTab === 'giderler' && currentUser.role === 'admin' && (
+            <div className="fade-in">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Gider Yönetimi</h2>
+                  <p className="text-gray-500 text-sm mt-1">Toplam {giderler.length} gider kaydı</p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => exportToExcel(giderler, 'giderler', [
+                      { key: 'kategori', label: 'Kategori' },
+                      { key: 'aciklama', label: 'Açıklama' },
+                      { key: 'tutar', label: 'Tutar', format: (row) => formatCurrency(row.tutar) },
+                      { key: 'tarih', label: 'Tarih', format: (row) => formatDate(row.tarih) }
+                    ])}
+                    className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition">
+                    <Icon name="Download" size={18} />
+                    Excel İndir
+                  </button>
+                  <button onClick={()=>setGiderModal(true)} 
+                    className="gradient-red text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-xl transition">
+                    <Icon name="Plus" size={20}/>
+                    Gider Ekle
+                  </button>
+                </div>
+              </div>
+
+              {/* Kategori İstatistikleri */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                {GIDER_KATEGORILERI.map(kategori => {
+                  const toplamTutar = giderler.filter(g => g.kategori === kategori).reduce((sum, g) => sum + (g.tutar || 0), 0);
+                  const adet = giderler.filter(g => g.kategori === kategori).length;
+                  return (
+                    <div key={kategori} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 card-hover">
+                      <p className="text-xs text-gray-500 mb-2">{kategori}</p>
+                      <p className="text-2xl font-bold text-red-600">{formatCurrency(toplamTutar)}</p>
+                      <p className="text-xs text-gray-400 mt-1">{adet} işlem</p>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Gider Listesi */}
+              <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                <div className="divide-y">
+                  {giderler.sort((a,b) => new Date(b.tarih) - new Date(a.tarih)).map(g => (
+                    <div key={g.id} className="p-5 flex items-center justify-between hover:bg-red-50/30 transition group">
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center group-hover:bg-red-200 transition">
+                          <Icon name="TrendingDown" size={24} className="text-red-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>{g.kategori}</span>
+                            <p className="text-xs text-gray-400 flex items-center gap-1">
+                              <Icon name="Calendar" size={12} />
+                              {formatDate(g.tarih)}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-gray-900">{g.aciklama}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <p className="font-bold text-red-600 text-2xl">-{formatCurrency(g.tutar)}</p>
+                        <button onClick={()=>deleteGider(g.id)} 
+                          className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition opacity-0 group-hover:opacity-100">
+                          <Icon name="Trash2" size={18}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {giderler.length === 0 && (
+                  <div className="text-center py-20">
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Icon name="TrendingDown" size={48} className="text-gray-300" />
+                    </div>
+                    <p className="text-gray-400 font-semibold text-lg mb-2">Henüz gider eklenmedi</p>
+                    <p className="text-gray-400 text-sm">Gider eklemek için yukarıdaki butonu kullanın</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ARŞİV */}
+          {activeTab === 'arsiv' && (
+            <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 fade-in">
+              <h2 className="font-bold text-xl mb-4 text-gray-800">Arşivlenmiş Kayıtlar</h2>
+              <div className="space-y-2">
+                {kayitlar.filter(k=>k.arsivlendi).map(k=>(
+                  <div key={k.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                    <div>
+                      <p className="font-semibold text-gray-900">{k.adSoyad}</p>
+                      <p className="text-sm text-gray-500">{k.donem}</p>
+                    </div>
+                    <button onClick={()=>{
+                      const yeni = kayitlar.map(x=>x.id===k.id?{...x, arsivlendi:false}:x);
+                      setKayitlar(yeni); 
+                      DB.set('kayitlar', yeni);
+                    }} 
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition">
+                      Geri Al
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {kayitlar.filter(k=>k.arsivlendi).length===0 && (
+                <div className="text-center py-16">
+                  <Icon name="Archive" size={64} className="text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-400 font-semibold">Arşiv boş</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* YÖNETİM PANELİ */}
+          {activeTab === 'yonetim' && currentUser.role === 'admin' && (
+            <div className="fade-in space-y-6">
+              
+              {/* Kullanıcı Yönetimi */}
+              <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                      <Icon name="Users" size={28} className="text-purple-600" />
+                      Kullanıcı Yönetimi
+                    </h2>
+                    <p className="text-gray-500 text-sm mt-1">{Object.keys(users).length} aktif kullanıcı</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const username = prompt('Kullanıcı adı:');
+                      if (!username) return;
+                      if (users[username]) {
+                        alert('Bu kullanıcı adı zaten mevcut!');
+                        return;
+                      }
+                      const password = prompt('Şifre:');
+                      if (!password) return;
+                      const name = prompt('Ad Soyad:');
+                      if (!name) return;
+                      const role = confirm('Admin yetkisi verilsin mi?\n\nEVET: Admin\nHAYIR: Sekreter') ? 'admin' : 'sekreter';
+                      
+                      UserManager.addUser(username, password, role, name);
+                      setUsers(UserManager.getUsers());
+                      ActivityLog.log(currentUser.username, 'KULLANICI EKLEME', `${name} (${username}) - ${role}`);
+                      setActivityLogs(ActivityLog.getLogs());
+                      alert('✅ Kullanıcı başarıyla eklendi!');
+                    }}
+                    className="gradient-green text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:shadow-xl transition">
+                    <Icon name="UserPlus" size={20} />
+                    Kullanıcı Ekle
+                  </button>
+                </div>
+
+                <div className="grid gap-4">
+                  {Object.entries(users).map(([username, user]) => (
+                    <div key={username} className="flex items-center justify-between p-5 bg-gradient-to-r from-purple-50 to-white rounded-2xl border border-purple-100 hover:shadow-md transition">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center ${user.role === 'admin' ? 'bg-purple-600' : 'bg-blue-600'}`}>
+                          <Icon name={user.role === 'admin' ? 'Shield' : 'User'} size={28} className="text-white" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-lg text-gray-900">{user.name}</h3>
+                          <p className="text-sm text-gray-600">@{username}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`badge ${user.role === 'admin' ? 'badge-danger' : 'badge-info'}`}>
+                              {user.role === 'admin' ? 'Yönetici' : 'Sekreter'}
+                            </span>
+                            <span className={`badge ${user.active ? 'badge-success' : 'badge-warning'}`}>
+                              {user.active ? 'Aktif' : 'Pasif'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const newPassword = prompt(`${user.name} için yeni şifre:`);
+                            if (newPassword) {
+                              UserManager.updateUser(username, { password: newPassword });
+                              setUsers(UserManager.getUsers());
+                              ActivityLog.log(currentUser.username, 'ŞİFRE SIFIRLAMA', `${user.name} (${username})`);
+                              setActivityLogs(ActivityLog.getLogs());
+                              alert('✅ Şifre başarıyla değiştirildi!');
+                            }
+                          }}
+                          className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg font-semibold transition flex items-center gap-2"
+                          title="Şifre Sıfırla">
+                          <Icon name="Key" size={16} />
+                          Şifre
+                        </button>
+                        <button
+                          onClick={() => {
+                            UserManager.updateUser(username, { active: !user.active });
+                            setUsers(UserManager.getUsers());
+                            ActivityLog.log(currentUser.username, user.active ? 'KULLANICI DEVRE DIŞI' : 'KULLANICI AKTİF', `${user.name} (${username})`);
+                            setActivityLogs(ActivityLog.getLogs());
+                          }}
+                          className={`px-4 py-2 rounded-lg font-semibold transition ${user.active ? 'bg-amber-50 hover:bg-amber-100 text-amber-600' : 'bg-green-50 hover:bg-green-100 text-green-600'}`}
+                          title={user.active ? 'Devre Dışı Bırak' : 'Aktif Et'}>
+                          <Icon name={user.active ? 'UserX' : 'UserCheck'} size={16} />
+                        </button>
+                        {username !== 'admin' && username !== currentUser.username && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`${user.name} kullanıcısını silmek istediğinize emin misiniz?`)) {
+                                UserManager.deleteUser(username);
+                                setUsers(UserManager.getUsers());
+                                ActivityLog.log(currentUser.username, 'KULLANICI SİLME', `${user.name} (${username})`);
+                                setActivityLogs(ActivityLog.getLogs());
+                              }
+                            }}
+                            className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition"
+                            title="Kullanıcıyı Sil">
+                            <Icon name="Trash2" size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Aktivite Logları */}
+              <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                      <Icon name="Activity" size={28} className="text-blue-600" />
+                      Aktivite Logları
+                    </h2>
+                    <p className="text-gray-500 text-sm mt-1">Son {activityLogs.length} işlem</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setActivityLogs(ActivityLog.getLogs())}
+                      className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg font-semibold transition">
+                      <Icon name="RefreshCw" size={18} className="inline mr-2" />
+                      Yenile
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Tüm logları silmek istediğinize emin misiniz?')) {
+                          ActivityLog.clearLogs();
+                          setActivityLogs([]);
+                          alert('✅ Loglar temizlendi!');
+                        }
+                      }}
+                      className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-semibold transition">
+                      <Icon name="Trash2" size={18} className="inline mr-2" />
+                      Temizle
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {activityLogs.map(log => (
+                    <div key={log.id} className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Icon name="Activity" size={20} className="text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-gray-900">{log.username}</span>
+                          <span className="badge badge-info">{log.action}</span>
+                        </div>
+                        {log.details && (
+                          <p className="text-sm text-gray-600 truncate">{log.details}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(log.timestamp).toLocaleString('tr-TR')}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {activityLogs.length === 0 && (
+                    <div className="text-center py-16">
+                      <Icon name="Activity" size={64} className="text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-400 font-semibold">Henüz aktivite kaydı yok</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      </main>
+
+      {/* MODALLAR */}
+      {editModal.open && (
+        <KayitForm 
+          viewMode={editModal.mode} 
+          editItem={editModal.item} 
+          onClose={()=>setEditModal({open:false, item:null, mode:null})}
+          onSave={handleSave}
+        />
+      )}
+
+      {tahsilatModal && <TahsilatModal student={tahsilatModal} onClose={()=>setTahsilatModal(null)} onConfirm={handleTahsilat} />}
+      {giderModal && <GiderModal onClose={()=>setGiderModal(false)} onSave={saveGider} />}
+
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+  </script>
+</body>
+</html>
