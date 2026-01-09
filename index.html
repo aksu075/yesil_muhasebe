@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Yeşil Güvenlik - Yönetim Paneli v7</title>
+  <title>Yeşil Güvenlik - Yönetim Paneli v8</title>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -54,7 +54,8 @@ const GIDER_KATEGORILERI = ['Mermi', 'Poligon', 'Eğitmen', 'Kira', 'Personel', 
 
 // Google Sheets Configuration
 const SHEETS_CONFIG = {
-  WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbx54AokpsO6w8c0u_nrx3TpGpr2f_cDsUOEFycLgDiOqn-W3N0E2iDudS6KvdnFq1Al/exec',
+  // DİKKAT: AŞAĞIYA YENİ ALDIĞIN URL'Yİ YAPIŞTIR (Tırnakların arasına)
+  WEB_APP_URL: 'BURAYA_YENI_ALDIGIN_AKTUEL_URL_GELECEK',
   SHEET_NAMES: {
     KAYITLAR: 'Kayitlar',
     GIDERLER: 'Giderler',
@@ -82,9 +83,10 @@ const SheetsAPI = {
   
   async bulkUpdate(sheetName, rows) {
     try {
+      // DÜZELTME: CORS hatasını önlemek için text/plain kullanıyoruz
       const response = await fetch(SHEETS_CONFIG.WEB_APP_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           sheet: sheetName,
           action: 'bulkUpdate',
@@ -101,9 +103,10 @@ const SheetsAPI = {
 
   async appendRow(sheetName, row) {
     try {
+      // DÜZELTME: CORS hatasını önlemek için text/plain kullanıyoruz
       const response = await fetch(SHEETS_CONFIG.WEB_APP_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           sheet: sheetName,
           action: 'append',
