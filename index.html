@@ -36,7 +36,7 @@
     .stat-card { position: relative; overflow: hidden; }
     .stat-card::before { content: ''; position: absolute; top: 0; right: 0; width: 100px; height: 100px; background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%); }
     
-    /* Custom Date Placeholder Logic - Soluk Yazı İçin */
+    /* Custom Date Placeholder Logic */
     input[type="date"] { position: relative; }
     input[type="date"]::-webkit-calendar-picker-indicator { background: transparent; bottom: 0; color: transparent; cursor: pointer; height: auto; left: 0; position: absolute; right: 0; top: 0; width: auto; }
     input[type="date"]::after { content: "📅"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; }
@@ -52,7 +52,7 @@
     .custom-table tr:last-child td { border-bottom: none; }
   </style>
   <script>
-    const APP_VERSION = 'v11';
+    const APP_VERSION = 'v12';
     const storedVersion = localStorage.getItem('yesil_app_version');
     if (storedVersion !== APP_VERSION) {
       if ('caches' in window) { caches.keys().then(names => { names.forEach(name => caches.delete(name)); }); }
@@ -70,7 +70,7 @@ const GIDER_KATEGORILERI = ['Mermi', 'Poligon', 'Eğitmen', 'Kira', 'Personel', 
 
 const SHEETS_CONFIG = {
   WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbx54AokpsO6w8c0u_nrx3TpGpr2f_cDsUOEFycLgDiOqn-W3N0E2iDudS6KvdnFq1Al/exec',
-  SHEET_NAMES: { KAYITLAR: 'Kayitlar', GIDERLER: 'Giderler', USERS: 'Users', LOGS: 'Logs' }
+  SHEET_NAMES: { KAYITLAR: 'Kayitlar', GIDERLER: 'Giderler', USERS: 'Users', LOGS: 'Logs', KASA: 'Kasa' }
 };
 
 const SheetsAPI = {
@@ -88,7 +88,8 @@ const SheetsAPI = {
   },
   kayitToRow(k) { return [k.id, k.adSoyad, k.tcKimlik, k.telefon, k.donem, k.egitimCesidi, k.egitimTuru, k.sinif, k.saglikRaporuTarihi, k.kayitTarihi, k.kayitSaati, k.toplamUcret, k.odenen, k.odemeTarihi, k.odemeTuru, k.taksitSayisi, k.vadeTarihi, k.vadeTarihi2, k.makbuzNo, k.faturaKesildi, k.faturaNo, k.arsivlendi, k.aciklama]; },
   rowToGider(row) { if (!row || row.length < 2) return null; return { id: parseInt(row[0]) || Date.now(), kategori: row[1] || '', aciklama: row[2] || '', tutar: parseFloat(row[3]) || 0, tarih: row[4] || '' }; },
-  giderToRow(g) { return [g.id, g.kategori, g.aciklama, g.tutar, g.tarih]; }
+  giderToRow(g) { return [g.id, g.kategori, g.aciklama, g.tutar, g.tarih]; },
+  kasaToRow(amount) { return [Date.now(), 'Kasa Borcu', amount, new Date().toISOString()]; }
 };
 
 const Icon = ({ name, size = 20, className = '' }) => {
@@ -99,12 +100,38 @@ const Icon = ({ name, size = 20, className = '' }) => {
 
 const DB = {
   useSheets: true,
-  async loadFromSheets() { if (!this.useSheets) return { kayitlar: [], giderler: [] }; try { const kayitlarRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR); const giderlerRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.GIDERLER); return { kayitlar: kayitlarRows.slice(1).map(row => SheetsAPI.rowToKayit(row)).filter(Boolean), giderler: giderlerRows.slice(1).map(row => SheetsAPI.rowToGider(row)).filter(Boolean) }; } catch (error) { return { kayitlar: [], giderler: [] }; } },
+  async loadFromSheets() { 
+    if (!this.useSheets) return { kayitlar: [], giderler: [], kasa_borc: 0 }; 
+    try { 
+      const kayitlarRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR); 
+      const giderlerRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.GIDERLER);
+      const kasaRows = await SheetsAPI.getSheet(SHEETS_CONFIG.SHEET_NAMES.KASA);
+      
+      let kasaBorc = 0;
+      if (kasaRows && kasaRows.length > 1) {
+         // Kasa sayfasının 2. satırındaki 3. sütunu (Index 2) borç olarak alıyoruz.
+         kasaBorc = parseFloat(kasaRows[1][2]) || 0;
+      }
+
+      return { 
+        kayitlar: kayitlarRows.slice(1).map(row => SheetsAPI.rowToKayit(row)).filter(Boolean), 
+        giderler: giderlerRows.slice(1).map(row => SheetsAPI.rowToGider(row)).filter(Boolean),
+        kasa_borc: kasaBorc
+      }; 
+    } catch (error) { return { kayitlar: [], giderler: [], kasa_borc: 0 }; } 
+  },
   async saveKayitlarToSheets(kayitlar) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR, kayitlar.map(k => SheetsAPI.kayitToRow(k))); } catch (e) {} } },
   async saveGiderlerToSheets(giderler) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.GIDERLER, giderler.map(g => SheetsAPI.giderToRow(g))); } catch (e) {} } },
+  async saveKasaToSheets(amount) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KASA, [SheetsAPI.kasaToRow(amount)]); } catch (e) {} } },
+  
   get: (key) => { try { return JSON.parse(localStorage.getItem('yesil_' + key)) || (key === 'kasa_borc' ? 0 : []); } catch { return key === 'kasa_borc' ? 0 : []; } },
-  set: (key, data) => { localStorage.setItem('yesil_' + key, JSON.stringify(data)); if (key === 'kayitlar') DB.saveKayitlarToSheets(data); else if (key === 'giderler') DB.saveGiderlerToSheets(data); },
-  migrate: async () => { if (DB.useSheets) return await DB.loadFromSheets(); let k = DB.get('kayitlar'); if (!Array.isArray(k)) k = []; return { kayitlar: k.map(item => ({ ...item, odenen: item.odenen || 0, toplamUcret: item.toplamUcret || 0, arsivlendi: item.arsivlendi || false, sinif: item.sinif || '', odemeTuru: item.odemeTuru || 'pesin', taksitSayisi: item.taksitSayisi || 0, aciklama: item.aciklama || '' })), giderler: DB.get('giderler') || [] }; }
+  set: (key, data) => { 
+    localStorage.setItem('yesil_' + key, JSON.stringify(data)); 
+    if (key === 'kayitlar') DB.saveKayitlarToSheets(data); 
+    else if (key === 'giderler') DB.saveGiderlerToSheets(data); 
+    else if (key === 'kasa_borc') DB.saveKasaToSheets(data);
+  },
+  migrate: async () => { if (DB.useSheets) return await DB.loadFromSheets(); let k = DB.get('kayitlar'); if (!Array.isArray(k)) k = []; return { kayitlar: k.map(item => ({ ...item, odenen: item.odenen || 0, toplamUcret: item.toplamUcret || 0, arsivlendi: item.arsivlendi || false, sinif: item.sinif || '', odemeTuru: item.odemeTuru || 'pesin', taksitSayisi: item.taksitSayisi || 0, aciklama: item.aciklama || '' })), giderler: DB.get('giderler') || [], kasa_borc: DB.get('kasa_borc') || 0 }; }
 };
 
 const UserManager = {
@@ -166,7 +193,6 @@ function KayitForm({ editItem, viewMode, onClose, onSave }) {
   const [form, setForm] = React.useState(editItem || { adSoyad: '', tcKimlik: '', telefon: '0(5', donem: getDonemler(initialEgitimTuru)[0], egitimCesidi: 'Silahlı', egitimTuru: initialEgitimTuru, sinif: '', saglikRaporuTarihi: '', kayitTarihi: '', kayitSaati: '', toplamUcret: 0, odenen: 0, odemeTarihi: '', odemeTuru: 'pesin', taksitSayisi: 2, vadeTarihi: '', vadeTarihi2: '', makbuzNo: '', faturaKesildi: false, faturaNo: '', aciklama: '' });
   
   React.useEffect(() => { const donemler = getDonemler(form.egitimTuru); if (!donemler.includes(form.donem)) setForm(p => ({ ...p, donem: donemler[0] })); }, [form.egitimTuru]);
-  // Removed old useEffect for odenen logic to handle it explicitly in onChange
   
   const handleChange = (f, v) => setForm(p => ({ ...p, [f]: v }));
   const handleSaveWithDateTime = () => {
@@ -322,14 +348,14 @@ function App() {
         setGiderler(data.giderler); 
         setUsers(UserManager.getUsers()); 
         setActivityLogs(ActivityLog.getLogs());
-        setKasaBorc(DB.get('kasa_borc'));
+        setKasaBorc(data.kasa_borc || 0);
       }); 
     } 
   }, []);
 
   React.useEffect(() => { if (currentUser && currentUser.role === 'sekreter') setActiveTab('yeni_kayit'); else if (currentUser && currentUser.role === 'admin') setActiveTab('dashboard'); }, [currentUser]);
 
-  const handleLogin = (user) => { setCurrentUser(user); DB.migrate().then(data => { setKayitlar(data.kayitlar); setGiderler(data.giderler); setKasaBorc(DB.get('kasa_borc')); }); };
+  const handleLogin = (user) => { setCurrentUser(user); DB.migrate().then(data => { setKayitlar(data.kayitlar); setGiderler(data.giderler); setKasaBorc(data.kasa_borc || 0); }); };
   const handleLogout = () => { Auth.logout(); setCurrentUser(null); setKayitlar([]); setGiderler([]); };
   
   const MENU = currentUser ? [
