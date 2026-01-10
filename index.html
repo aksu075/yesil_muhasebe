@@ -50,7 +50,7 @@
     .custom-table tr:last-child td { border-bottom: none; }
   </style>
   <script>
-    const APP_VERSION = 'v15';
+    const APP_VERSION = 'v16';
     const storedVersion = localStorage.getItem('yesil_app_version');
     if (storedVersion !== APP_VERSION) {
       if ('caches' in window) { caches.keys().then(names => { names.forEach(name => caches.delete(name)); }); }
@@ -82,9 +82,45 @@ const SheetsAPI = {
   },
   rowToKayit(row) {
     if (!row || row.length < 2) return null;
-    return { id: parseInt(row[0]) || Date.now(), adSoyad: row[1] || '', tcKimlik: row[2] || '', telefon: row[3] || '', donem: row[4] || '', egitimCesidi: row[5] || '', egitimTuru: row[6] || '', sinif: row[7] || '', saglikRaporuTarihi: row[8] || '', kayitTarihi: row[9] || '', kayitSaati: row[10] || '', toplamUcret: parseFloat(row[11]) || 0, odenen: parseFloat(row[12]) || 0, odemeTarihi: row[13] || '', odemeTuru: row[14] || 'pesin', taksitSayisi: parseInt(row[15]) || 0, vadeTarihi: row[16] || '', vadeTarihi2: row[17] || '', makbuzNo: row[18] || '', faturaKesildi: row[19] === 'true' || row[19] === true, faturaNo: row[20] || '', arsivlendi: row[21] === 'true' || row[21] === true, aciklama: row[22] || '' };
+    return { 
+      id: parseInt(row[0]) || Date.now(), 
+      adSoyad: row[1] || '', 
+      tcKimlik: row[2] || '', 
+      telefon: row[3] || '', 
+      donem: row[4] || '', 
+      egitimCesidi: row[5] || '', 
+      egitimTuru: row[6] || '', 
+      sinif: row[7] || '', 
+      saglikRaporuTarihi: row[8] || '', 
+      kayitTarihi: row[9] || '', 
+      kayitSaati: row[10] || '', 
+      toplamUcret: parseFloat(row[11]) || 0, 
+      odenen: parseFloat(row[12]) || 0, 
+      odemeTarihi: row[13] || '', 
+      odemeTuru: row[14] || 'pesin', 
+      taksitSayisi: parseInt(row[15]) || 0, 
+      vadeTarihi: row[16] || '', 
+      vadeTarihi2: row[17] || '', 
+      makbuzNo: row[18] || '', 
+      faturaKesildi: row[19] === 'true' || row[19] === true, 
+      faturaNo: row[20] || '', 
+      arsivlendi: row[21] === 'true' || row[21] === true, 
+      aciklama: row[22] || '',
+      sinavPuan: row[23] || '',
+      duzenlemeTarihi: row[24] || '',
+      gecerlilikSuresi: row[25] || '',
+      belgeNo: row[26] || ''
+    };
   },
-  kayitToRow(k) { return [k.id, k.adSoyad, k.tcKimlik, k.telefon, k.donem, k.egitimCesidi, k.egitimTuru, k.sinif, k.saglikRaporuTarihi, k.kayitTarihi, k.kayitSaati, k.toplamUcret, k.odenen, k.odemeTarihi, k.odemeTuru, k.taksitSayisi, k.vadeTarihi, k.vadeTarihi2, k.makbuzNo, k.faturaKesildi, k.faturaNo, k.arsivlendi, k.aciklama]; },
+  kayitToRow(k) { 
+    return [
+      k.id, k.adSoyad, k.tcKimlik, k.telefon, k.donem, k.egitimCesidi, k.egitimTuru, k.sinif, 
+      k.saglikRaporuTarihi, k.kayitTarihi, k.kayitSaati, k.toplamUcret, k.odenen, k.odemeTarihi, 
+      k.odemeTuru, k.taksitSayisi, k.vadeTarihi, k.vadeTarihi2, k.makbuzNo, k.faturaKesildi, 
+      k.faturaNo, k.arsivlendi, k.aciklama, 
+      k.sinavPuan, k.duzenlemeTarihi, k.gecerlilikSuresi, k.belgeNo
+    ]; 
+  },
   rowToGider(row) { if (!row || row.length < 2) return null; return { id: parseInt(row[0]) || Date.now(), kategori: row[1] || '', aciklama: row[2] || '', tutar: parseFloat(row[3]) || 0, tarih: row[4] || '' }; },
   giderToRow(g) { return [g.id, g.kategori, g.aciklama, g.tutar, g.tarih]; },
   kasaToRow(amount, date) { return [Date.now(), 'Kasa Borcu', amount, date || new Date().toISOString()]; }
@@ -107,9 +143,6 @@ const DB = {
       
       let kasaBorc = 0;
       if (kasaRows && kasaRows.length > 1) {
-         // Kasa borcunu son satırdaki bakiye olarak alıyoruz. (Basit mantık: Her satır yeni bakiye)
-         // Not: Gerçek muhasebede işlemler toplanır ama mevcut yapıda tek hücrede tutuyorduk.
-         // Burada son işlemi alıp bakiye kabul edeceğiz.
          const lastRow = kasaRows[kasaRows.length - 1];
          kasaBorc = parseFloat(lastRow[2]) || 0;
       }
@@ -130,7 +163,7 @@ const DB = {
     localStorage.setItem('yesil_' + key, JSON.stringify(data)); 
     if (key === 'kayitlar') DB.saveKayitlarToSheets(data); 
     else if (key === 'giderler') DB.saveGiderlerToSheets(data); 
-    else if (key === 'kasa_borc') DB.saveKasaToSheets(data, extra); // extra parametresi tarih için
+    else if (key === 'kasa_borc') DB.saveKasaToSheets(data, extra); 
   },
   migrate: async () => { if (DB.useSheets) return await DB.loadFromSheets(); let k = DB.get('kayitlar'); if (!Array.isArray(k)) k = []; return { kayitlar: k.map(item => ({ ...item, odenen: item.odenen || 0, toplamUcret: item.toplamUcret || 0, arsivlendi: item.arsivlendi || false, sinif: item.sinif || '', odemeTuru: item.odemeTuru || 'pesin', taksitSayisi: item.taksitSayisi || 0, aciklama: item.aciklama || '' })), giderler: DB.get('giderler') || [], kasa_borc: DB.get('kasa_borc') || 0 }; }
 };
@@ -191,7 +224,7 @@ function MuhasebeCard({ item, onEdit, onTahsilat, onDelete }) {
 function KayitForm({ editItem, viewMode, onClose, onSave }) {
   const getDonemler = (egitimTuru) => egitimTuru === 'Yenileme' ? YENILEME_DONEMLER : TEMEL_DONEMLER;
   const initialEgitimTuru = editItem?.egitimTuru || 'Temel';
-  const [form, setForm] = React.useState(editItem || { adSoyad: '', tcKimlik: '', telefon: '0(5', donem: getDonemler(initialEgitimTuru)[0], egitimCesidi: 'Silahlı', egitimTuru: initialEgitimTuru, sinif: '', saglikRaporuTarihi: '', kayitTarihi: '', kayitSaati: '', toplamUcret: 0, odenen: 0, odemeTarihi: '', odemeTuru: 'pesin', taksitSayisi: 2, vadeTarihi: '', vadeTarihi2: '', makbuzNo: '', faturaKesildi: false, faturaNo: '', aciklama: '' });
+  const [form, setForm] = React.useState(editItem || { adSoyad: '', tcKimlik: '', telefon: '0(5', donem: getDonemler(initialEgitimTuru)[0], egitimCesidi: 'Silahlı', egitimTuru: initialEgitimTuru, sinif: '', saglikRaporuTarihi: '', kayitTarihi: '', kayitSaati: '', toplamUcret: 0, odenen: 0, odemeTarihi: '', odemeTuru: 'pesin', taksitSayisi: 2, vadeTarihi: '', vadeTarihi2: '', makbuzNo: '', faturaKesildi: false, faturaNo: '', aciklama: '', sinavPuan: '', duzenlemeTarihi: '', gecerlilikSuresi: '', belgeNo: '' });
   
   React.useEffect(() => { const donemler = getDonemler(form.egitimTuru); if (!donemler.includes(form.donem)) setForm(p => ({ ...p, donem: donemler[0] })); }, [form.egitimTuru]);
   
@@ -224,6 +257,33 @@ function KayitForm({ editItem, viewMode, onClose, onSave }) {
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Sınıf</label><select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" value={form.sinif} onChange={e=>handleChange('sinif',e.target.value)}><option value="">Seçiniz</option>{SINIFLAR.map(s=><option key={s}>{s}</option>)}</select></div>
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Sağlık Raporu Tarihi</label><input type="date" required className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="gün.ay.yıl" value={form.saglikRaporuTarihi} onChange={e=>handleChange('saglikRaporuTarihi',e.target.value)} max="9999-12-31" /></div>
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Kayıt Tarihi</label><input type="text" className="w-full p-3 border-2 border-gray-200 rounded-xl bg-gray-50 text-gray-500" value={form.kayitTarihi ? formatDate(form.kayitTarihi) : ''} placeholder="Tarih Otomatik Verilecek" readOnly /></div>
+            
+            {/* YENİ ALANLAR BAŞLANGIÇ */}
+            <div className="border-t pt-4 mt-2 md:col-span-2"><h5 className="font-bold text-gray-700 mb-2">Belge ve Sınav Bilgileri</h5></div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Sınav Seviye Puanı</label>
+              <input type="number" min="0" max="100" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="0-100" value={form.sinavPuan} onChange={e=>{
+                let val = parseInt(e.target.value);
+                if (isNaN(val)) { handleChange('sinavPuan', ''); return; }
+                if (val > 100) val = 100;
+                if (val < 0) val = 0;
+                handleChange('sinavPuan', val);
+              }} />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Belge No</label>
+              <input type="text" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="Belge Numarası" value={form.belgeNo} onChange={e=>handleChange('belgeNo',e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Düzenleme Tarihi</label>
+              <input type="date" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="gün.ay.yıl" value={form.duzenlemeTarihi} onChange={e=>handleChange('duzenlemeTarihi',e.target.value)} max="9999-12-31" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Geçerlilik Süresi</label>
+              <input type="date" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none" placeholder="gün.ay.yıl" value={form.gecerlilikSuresi} onChange={e=>handleChange('gecerlilikSuresi',e.target.value)} max="9999-12-31" />
+            </div>
+            {/* YENİ ALANLAR BİTİŞ */}
+
           </div></div>}
           {showFinancial && <div><h4 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2"><Icon name="Receipt" size={20} className="text-blue-600" />Muhasebe Bilgileri</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Ödeme Türü</label><select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" value={form.odemeTuru} onChange={e=>{const v=e.target.value;handleChange('odemeTuru',v);if(v==='pesin'){handleChange('taksitSayisi',0);handleChange('vadeTarihi','');handleChange('vadeTarihi2','');handleChange('odenen', form.toplamUcret);} else if(v==='taksit'){handleChange('odenen', 0);}}}><option value="pesin">Peşin</option><option value="taksit">Taksit</option></select></div>
@@ -363,7 +423,6 @@ function RaporView({ kayitlar, giderler }) {
      const totalReceivable = filteredKayitlar.reduce((sum, k) => sum + (k.toplamUcret || 0), 0);
      const totalCollected = filteredKayitlar.reduce((sum, k) => sum + (k.odenen || 0), 0);
      
-     // Giderler sadece tarih bazlıdır, öğrenci filtresinden etkilenmez ama tarih aralığına uyar
      const filteredGiderler = giderler.filter(g => g.tarih >= startDate && g.tarih <= endDate);
      const totalExpense = filteredGiderler.reduce((sum, g) => sum + (g.tutar || 0), 0);
 
@@ -375,7 +434,6 @@ function RaporView({ kayitlar, giderler }) {
       <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
         <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Icon name="Filter" size={20} /> Rapor Kriterleri</h2>
         
-        {/* Tarih Seçimi */}
         <div className="bg-gray-50 p-4 rounded-xl mb-6">
            <div className="flex flex-wrap gap-2 mb-4">
              <button onClick={()=>setRange(0)} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Bu Ay</button>
@@ -390,7 +448,6 @@ function RaporView({ kayitlar, giderler }) {
            </div>
         </div>
 
-        {/* Detaylı Filtreler */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
            <div>
              <label className="text-xs font-semibold text-gray-500 mb-1 block">Eğitim Türü</label>
@@ -418,7 +475,6 @@ function RaporView({ kayitlar, giderler }) {
            </div>
         </div>
 
-        {/* Sonuç Kartları */}
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200">
              <p className="text-xs text-gray-500">Kayıt Sayısı</p>
@@ -453,7 +509,7 @@ function App() {
   const [kayitlar, setKayitlar] = React.useState([]);
   const [giderler, setGiderler] = React.useState([]);
   const [searchTerm, setSearchTerm] = React.useState('');
-  // Filter States for Lists
+  
   const [listFilterEgitimTuru, setListFilterEgitimTuru] = React.useState('Tümü');
   const [listFilterDonem, setListFilterDonem] = React.useState('Tümü');
   const [listFilterSinif, setListFilterSinif] = React.useState('Tümü');
@@ -532,7 +588,6 @@ function App() {
   
   const stats = { toplamOgrenci: kayitlar.filter(k => !k.arsivlendi).length, toplamGelir: kayitlar.filter(k => !k.arsivlendi).reduce((sum, k) => sum + (k.odenen || 0), 0), bekleyenTahsilat: kayitlar.filter(k => !k.arsivlendi).reduce((sum, k) => sum + ((k.toplamUcret || 0) - (k.odenen || 0)), 0), toplamGider: giderler.reduce((sum, g) => sum + (g.tutar || 0), 0) };
 
-  // Helper for filter bar
   const FilterBar = () => (
     <div className="flex flex-col md:flex-row gap-3 mb-6 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
       <div className="flex-1 relative"><Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-12 pr-4 py-2 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:outline-none transition" placeholder="Ad, TC veya telefon..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
