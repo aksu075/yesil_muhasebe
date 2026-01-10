@@ -36,7 +36,6 @@
     .stat-card { position: relative; overflow: hidden; }
     .stat-card::before { content: ''; position: absolute; top: 0; right: 0; width: 100px; height: 100px; background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%); }
     
-    /* Custom Date Placeholder Logic */
     input[type="date"] { position: relative; }
     input[type="date"]::-webkit-calendar-picker-indicator { background: transparent; bottom: 0; color: transparent; cursor: pointer; height: auto; left: 0; position: absolute; right: 0; top: 0; width: auto; }
     input[type="date"]::after { content: "📅"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; }
@@ -44,7 +43,6 @@
     input[type="date"]:focus::before, input[type="date"]:valid::before { content: "" !important; display: none; }
     input[type="date"]:focus, input[type="date"]:valid { padding-left: 12px; }
     
-    /* Table Styles */
     .custom-table { width: 100%; border-collapse: separate; border-spacing: 0; }
     .custom-table th { background-color: #f9fafb; color: #374151; font-weight: 600; padding: 12px 16px; text-align: left; border-bottom: 2px solid #e5e7eb; white-space: nowrap; }
     .custom-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; color: #4b5563; }
@@ -52,7 +50,7 @@
     .custom-table tr:last-child td { border-bottom: none; }
   </style>
   <script>
-    const APP_VERSION = 'v14';
+    const APP_VERSION = 'v15';
     const storedVersion = localStorage.getItem('yesil_app_version');
     if (storedVersion !== APP_VERSION) {
       if ('caches' in window) { caches.keys().then(names => { names.forEach(name => caches.delete(name)); }); }
@@ -89,7 +87,7 @@ const SheetsAPI = {
   kayitToRow(k) { return [k.id, k.adSoyad, k.tcKimlik, k.telefon, k.donem, k.egitimCesidi, k.egitimTuru, k.sinif, k.saglikRaporuTarihi, k.kayitTarihi, k.kayitSaati, k.toplamUcret, k.odenen, k.odemeTarihi, k.odemeTuru, k.taksitSayisi, k.vadeTarihi, k.vadeTarihi2, k.makbuzNo, k.faturaKesildi, k.faturaNo, k.arsivlendi, k.aciklama]; },
   rowToGider(row) { if (!row || row.length < 2) return null; return { id: parseInt(row[0]) || Date.now(), kategori: row[1] || '', aciklama: row[2] || '', tutar: parseFloat(row[3]) || 0, tarih: row[4] || '' }; },
   giderToRow(g) { return [g.id, g.kategori, g.aciklama, g.tutar, g.tarih]; },
-  kasaToRow(amount) { return [Date.now(), 'Kasa Borcu', amount, new Date().toISOString()]; }
+  kasaToRow(amount, date) { return [Date.now(), 'Kasa Borcu', amount, date || new Date().toISOString()]; }
 };
 
 const Icon = ({ name, size = 20, className = '' }) => {
@@ -109,7 +107,11 @@ const DB = {
       
       let kasaBorc = 0;
       if (kasaRows && kasaRows.length > 1) {
-         kasaBorc = parseFloat(kasaRows[1][2]) || 0;
+         // Kasa borcunu son satırdaki bakiye olarak alıyoruz. (Basit mantık: Her satır yeni bakiye)
+         // Not: Gerçek muhasebede işlemler toplanır ama mevcut yapıda tek hücrede tutuyorduk.
+         // Burada son işlemi alıp bakiye kabul edeceğiz.
+         const lastRow = kasaRows[kasaRows.length - 1];
+         kasaBorc = parseFloat(lastRow[2]) || 0;
       }
 
       return { 
@@ -121,14 +123,14 @@ const DB = {
   },
   async saveKayitlarToSheets(kayitlar) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KAYITLAR, kayitlar.map(k => SheetsAPI.kayitToRow(k))); } catch (e) {} } },
   async saveGiderlerToSheets(giderler) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.GIDERLER, giderler.map(g => SheetsAPI.giderToRow(g))); } catch (e) {} } },
-  async saveKasaToSheets(amount) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KASA, [SheetsAPI.kasaToRow(amount)]); } catch (e) {} } },
+  async saveKasaToSheets(amount, date) { if (this.useSheets) { try { await SheetsAPI.bulkUpdate(SHEETS_CONFIG.SHEET_NAMES.KASA, [SheetsAPI.kasaToRow(amount, date)]); } catch (e) {} } },
   
   get: (key) => { try { return JSON.parse(localStorage.getItem('yesil_' + key)) || (key === 'kasa_borc' ? 0 : []); } catch { return key === 'kasa_borc' ? 0 : []; } },
-  set: (key, data) => { 
+  set: (key, data, extra) => { 
     localStorage.setItem('yesil_' + key, JSON.stringify(data)); 
     if (key === 'kayitlar') DB.saveKayitlarToSheets(data); 
     else if (key === 'giderler') DB.saveGiderlerToSheets(data); 
-    else if (key === 'kasa_borc') DB.saveKasaToSheets(data);
+    else if (key === 'kasa_borc') DB.saveKasaToSheets(data, extra); // extra parametresi tarih için
   },
   migrate: async () => { if (DB.useSheets) return await DB.loadFromSheets(); let k = DB.get('kayitlar'); if (!Array.isArray(k)) k = []; return { kayitlar: k.map(item => ({ ...item, odenen: item.odenen || 0, toplamUcret: item.toplamUcret || 0, arsivlendi: item.arsivlendi || false, sinif: item.sinif || '', odemeTuru: item.odemeTuru || 'pesin', taksitSayisi: item.taksitSayisi || 0, aciklama: item.aciklama || '' })), giderler: DB.get('giderler') || [], kasa_borc: DB.get('kasa_borc') || 0 }; }
 };
@@ -245,6 +247,7 @@ function KayitForm({ editItem, viewMode, onClose, onSave }) {
 function KasaView({ kayitlar, giderler, onBorcChange }) {
   const [borcModal, setBorcModal] = React.useState(null); // 'al' veya 'ode'
   const [tutar, setTutar] = React.useState('');
+  const [islemTarihi, setIslemTarihi] = React.useState(new Date().toISOString().split('T')[0]);
   const kasaBorc = DB.get('kasa_borc') || 0;
 
   const toplamOgrenciGeliri = kayitlar.filter(k => !k.arsivlendi).reduce((sum, k) => sum + (k.odenen || 0), 0);
@@ -256,9 +259,10 @@ function KasaView({ kayitlar, giderler, onBorcChange }) {
     const val = parseFloat(tutar);
     if (!val || val <= 0) return;
     const yeniBorc = borcModal === 'al' ? kasaBorc + val : kasaBorc - val;
-    onBorcChange(yeniBorc);
+    onBorcChange(yeniBorc, islemTarihi);
     setBorcModal(null);
     setTutar('');
+    setIslemTarihi(new Date().toISOString().split('T')[0]);
   };
 
   return (
@@ -306,6 +310,8 @@ function KasaView({ kayitlar, giderler, onBorcChange }) {
            <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 fade-in">
              <h3 className="text-xl font-bold mb-4">{borcModal === 'al' ? 'Borç Al' : 'Borç Öde'}</h3>
              <form onSubmit={handleBorcIslem}>
+               <label className="block text-sm font-semibold text-gray-700 mb-2">Tarih</label>
+               <input type="date" required max="9999-12-31" className="w-full p-4 border-2 border-gray-200 rounded-xl mb-4 focus:border-blue-500 focus:outline-none" value={islemTarihi} onChange={e=>setIslemTarihi(e.target.value)} placeholder="gün.ay.yıl" />
                <label className="block text-sm font-semibold text-gray-700 mb-2">Tutar</label>
                <input type="number" autoFocus min="0" step="0.01" className="w-full p-4 border-2 border-gray-200 rounded-xl font-bold text-center text-2xl mb-4 focus:border-blue-500 focus:outline-none" value={tutar} onChange={e=>setTutar(e.target.value)} placeholder="0.00" />
                <div className="flex gap-3">
@@ -321,121 +327,120 @@ function KasaView({ kayitlar, giderler, onBorcChange }) {
 }
 
 function RaporView({ kayitlar, giderler }) {
-  const [reportType, setReportType] = React.useState('monthly');
-  const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-  const [selectedDonem, setSelectedDonem] = React.useState(TEMEL_DONEMLER[0]);
-  const [selectedSinif, setSelectedSinif] = React.useState('');
+  const [startDate, setStartDate] = React.useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = React.useState(new Date().toISOString().split('T')[0]);
+  const [filterEgitimTuru, setFilterEgitimTuru] = React.useState('Tümü');
+  const [filterEgitimCesidi, setFilterEgitimCesidi] = React.useState('Tümü');
+  const [filterDonem, setFilterDonem] = React.useState('Tümü');
+  const [filterSinif, setFilterSinif] = React.useState('Tümü');
 
-  const monthlyStats = React.useMemo(() => {
-    if (reportType !== 'monthly') return null;
-    const [year, month] = selectedDate.split('-');
-    
-    // Gelirler (Ödeme Tarihine Göre)
-    const income = kayitlar.filter(k => !k.arsivlendi && k.odenen > 0 && k.odemeTarihi && k.odemeTarihi.startsWith(selectedDate))
-                          .reduce((sum, k) => sum + (k.odenen || 0), 0);
+  const setRange = (months) => {
+    const end = new Date();
+    const start = new Date();
+    start.setMonth(start.getMonth() - months);
+    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(start.toISOString().split('T')[0]);
+  };
+  
+  const setThisYear = () => {
+    const now = new Date();
+    setStartDate(now.getFullYear() + '-01-01');
+    setEndDate(now.getFullYear() + '-12-31');
+  };
 
-    // Giderler (Gider Tarihine Göre)
-    const expense = giderler.filter(g => g.tarih && g.tarih.startsWith(selectedDate))
-                            .reduce((sum, g) => sum + (g.tutar || 0), 0);
+  const filteredData = React.useMemo(() => {
+     let filteredKayitlar = kayitlar.filter(k => {
+       if (k.arsivlendi) return false;
+       if (!k.kayitTarihi) return false;
+       if (k.kayitTarihi < startDate || k.kayitTarihi > endDate) return false;
+       if (filterEgitimTuru !== 'Tümü' && k.egitimTuru !== filterEgitimTuru) return false;
+       if (filterEgitimCesidi !== 'Tümü' && k.egitimCesidi !== filterEgitimCesidi) return false;
+       if (filterDonem !== 'Tümü' && k.donem !== filterDonem) return false;
+       if (filterSinif !== 'Tümü' && k.sinif !== filterSinif) return false;
+       return true;
+     });
 
-    return { income, expense, profit: income - expense };
-  }, [reportType, selectedDate, kayitlar, giderler]);
+     const totalReceivable = filteredKayitlar.reduce((sum, k) => sum + (k.toplamUcret || 0), 0);
+     const totalCollected = filteredKayitlar.reduce((sum, k) => sum + (k.odenen || 0), 0);
+     
+     // Giderler sadece tarih bazlıdır, öğrenci filtresinden etkilenmez ama tarih aralığına uyar
+     const filteredGiderler = giderler.filter(g => g.tarih >= startDate && g.tarih <= endDate);
+     const totalExpense = filteredGiderler.reduce((sum, g) => sum + (g.tutar || 0), 0);
 
-  const termStats = React.useMemo(() => {
-    if (reportType !== 'term') return null;
-    
-    let filtered = kayitlar.filter(k => !k.arsivlendi && k.donem === selectedDonem);
-    if (selectedSinif) {
-      filtered = filtered.filter(k => k.sinif === selectedSinif);
-    }
-
-    const totalReceivable = filtered.reduce((sum, k) => sum + (k.toplamUcret || 0), 0);
-    const totalCollected = filtered.reduce((sum, k) => sum + (k.odenen || 0), 0);
-    const totalPending = totalReceivable - totalCollected;
-
-    return { totalReceivable, totalCollected, totalPending, count: filtered.length };
-  }, [reportType, selectedDonem, selectedSinif, kayitlar]);
+     return { count: filteredKayitlar.length, totalReceivable, totalCollected, totalExpense, net: totalCollected - totalExpense };
+  }, [kayitlar, giderler, startDate, endDate, filterEgitimTuru, filterEgitimCesidi, filterDonem, filterSinif]);
 
   return (
     <div className="fade-in space-y-6">
       <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-        <div className="flex gap-4 mb-6 border-b pb-4">
-          <button onClick={() => setReportType('monthly')} className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${reportType === 'monthly' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>Aylık Analiz</button>
-          <button onClick={() => setReportType('term')} className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${reportType === 'term' ? 'bg-purple-50 text-purple-600' : 'text-gray-500 hover:bg-gray-50'}`}>Dönem/Sınıf Analizi</button>
+        <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Icon name="Filter" size={20} /> Rapor Kriterleri</h2>
+        
+        {/* Tarih Seçimi */}
+        <div className="bg-gray-50 p-4 rounded-xl mb-6">
+           <div className="flex flex-wrap gap-2 mb-4">
+             <button onClick={()=>setRange(0)} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Bu Ay</button>
+             <button onClick={()=>setRange(1)} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Son 1 Ay</button>
+             <button onClick={()=>setRange(3)} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Son 3 Ay</button>
+             <button onClick={()=>setRange(6)} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Son 6 Ay</button>
+             <button onClick={setThisYear} className="px-3 py-1 bg-white border rounded-lg text-sm hover:bg-blue-50 text-gray-600">Bu Yıl</button>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+             <div><label className="text-xs font-semibold text-gray-500">Başlangıç</label><input type="date" className="w-full p-2 border rounded-lg" value={startDate} onChange={e=>setStartDate(e.target.value)} /></div>
+             <div><label className="text-xs font-semibold text-gray-500">Bitiş</label><input type="date" className="w-full p-2 border rounded-lg" value={endDate} onChange={e=>setEndDate(e.target.value)} /></div>
+           </div>
         </div>
 
-        {reportType === 'monthly' && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <label className="font-semibold text-gray-700">Rapor Dönemi:</label>
-              <input type="month" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="p-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
-            </div>
+        {/* Detaylı Filtreler */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+           <div>
+             <label className="text-xs font-semibold text-gray-500 mb-1 block">Eğitim Türü</label>
+             <select className="w-full p-2 border rounded-lg" value={filterEgitimTuru} onChange={e=>setFilterEgitimTuru(e.target.value)}>
+               <option>Tümü</option><option>Temel</option><option>Yenileme</option><option value="Silah Farkı">Silah Farkı</option>
+             </select>
+           </div>
+           <div>
+             <label className="text-xs font-semibold text-gray-500 mb-1 block">Eğitim Çeşidi</label>
+             <select className="w-full p-2 border rounded-lg" value={filterEgitimCesidi} onChange={e=>setFilterEgitimCesidi(e.target.value)}>
+               <option>Tümü</option><option>Silahlı</option><option>Silahsız</option>
+             </select>
+           </div>
+           <div>
+             <label className="text-xs font-semibold text-gray-500 mb-1 block">Dönem</label>
+             <select className="w-full p-2 border rounded-lg" value={filterDonem} onChange={e=>setFilterDonem(e.target.value)}>
+               <option>Tümü</option>{[...new Set([...TEMEL_DONEMLER, ...YENILEME_DONEMLER])].sort().map(d=><option key={d}>{d}</option>)}
+             </select>
+           </div>
+           <div>
+             <label className="text-xs font-semibold text-gray-500 mb-1 block">Sınıf</label>
+             <select className="w-full p-2 border rounded-lg" value={filterSinif} onChange={e=>setFilterSinif(e.target.value)}>
+               <option>Tümü</option>{SINIFLAR.map(s=><option key={s}>{s}</option>)}
+             </select>
+           </div>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-green-50 p-6 rounded-2xl border border-green-100">
-                <p className="text-green-600 font-semibold mb-1">Toplam Gelir</p>
-                <p className="text-2xl font-bold text-green-800">{formatCurrency(monthlyStats.income)}</p>
-              </div>
-              <div className="bg-red-50 p-6 rounded-2xl border border-red-100">
-                <p className="text-red-600 font-semibold mb-1">Toplam Gider</p>
-                <p className="text-2xl font-bold text-red-800">{formatCurrency(monthlyStats.expense)}</p>
-              </div>
-              <div className={`p-6 rounded-2xl border ${monthlyStats.profit >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
-                <p className={`${monthlyStats.profit >= 0 ? 'text-blue-600' : 'text-orange-600'} font-semibold mb-1`}>Net Durum (Kar/Zarar)</p>
-                <p className={`text-2xl font-bold ${monthlyStats.profit >= 0 ? 'text-blue-800' : 'text-orange-800'}`}>{formatCurrency(monthlyStats.profit)}</p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 text-center">* Hesaplamalar, seçilen ay içerisinde yapılan tahsilat ve gider tarihlerine göre yapılmıştır.</p>
-          </div>
-        )}
-
-        {reportType === 'term' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div>
-                 <label className="block text-sm font-semibold text-gray-700 mb-1">Dönem</label>
-                 <select className="w-full p-2 border-2 border-gray-200 rounded-xl" value={selectedDonem} onChange={e => setSelectedDonem(e.target.value)}>
-                   {[...new Set([...TEMEL_DONEMLER, ...YENILEME_DONEMLER])].sort().map(d => <option key={d}>{d}</option>)}
-                 </select>
-               </div>
-               <div>
-                 <label className="block text-sm font-semibold text-gray-700 mb-1">Sınıf (Opsiyonel)</label>
-                 <select className="w-full p-2 border-2 border-gray-200 rounded-xl" value={selectedSinif} onChange={e => setSelectedSinif(e.target.value)}>
-                   <option value="">Tüm Sınıflar</option>
-                   {SINIFLAR.map(s => <option key={s}>{s}</option>)}
-                 </select>
-               </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-               <div className="p-4 bg-gray-50 rounded-xl">
-                 <p className="text-xs text-gray-500">Öğrenci Sayısı</p>
-                 <p className="text-xl font-bold text-gray-800">{termStats.count}</p>
-               </div>
-               <div className="p-4 bg-blue-50 rounded-xl">
-                 <p className="text-xs text-blue-600">Toplam Alacak</p>
-                 <p className="text-xl font-bold text-blue-800">{formatCurrency(termStats.totalReceivable)}</p>
-               </div>
-               <div className="p-4 bg-green-50 rounded-xl">
-                 <p className="text-xs text-green-600">Tahsil Edilen</p>
-                 <p className="text-xl font-bold text-green-800">{formatCurrency(termStats.totalCollected)}</p>
-               </div>
-               <div className="p-4 bg-amber-50 rounded-xl">
-                 <p className="text-xs text-amber-600">Bekleyen</p>
-                 <p className="text-xl font-bold text-amber-800">{formatCurrency(termStats.totalPending)}</p>
-               </div>
-            </div>
-            
-            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden mt-4">
-               <div className="bg-green-500 h-full transition-all" style={{ width: `${termStats.totalReceivable > 0 ? (termStats.totalCollected / termStats.totalReceivable) * 100 : 0}%` }}></div>
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-               <span>%0 Tahsilat</span>
-               <span>%{termStats.totalReceivable > 0 ? Math.round((termStats.totalCollected / termStats.totalReceivable) * 100) : 0} Tamamlandı</span>
-               <span>%100 Hedef</span>
-            </div>
-          </div>
-        )}
+        {/* Sonuç Kartları */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200">
+             <p className="text-xs text-gray-500">Kayıt Sayısı</p>
+             <p className="text-2xl font-bold text-gray-800">{filteredData.count}</p>
+           </div>
+           <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+             <p className="text-xs text-blue-600">Toplam Alacak</p>
+             <p className="text-xl font-bold text-blue-800">{formatCurrency(filteredData.totalReceivable)}</p>
+           </div>
+           <div className="p-4 bg-green-50 rounded-2xl border border-green-100">
+             <p className="text-xs text-green-600">Tahsil Edilen</p>
+             <p className="text-xl font-bold text-green-800">{formatCurrency(filteredData.totalCollected)}</p>
+           </div>
+           <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
+             <p className="text-xs text-red-600">Giderler</p>
+             <p className="text-xl font-bold text-red-800">{formatCurrency(filteredData.totalExpense)}</p>
+           </div>
+           <div className={"p-4 rounded-2xl border " + (filteredData.net >= 0 ? "bg-emerald-50 border-emerald-100" : "bg-orange-50 border-orange-100")}>
+             <p className={"text-xs " + (filteredData.net >= 0 ? "text-emerald-600" : "text-orange-600")}>Net Kasa</p>
+             <p className={"text-xl font-bold " + (filteredData.net >= 0 ? "text-emerald-800" : "text-orange-800")}>{formatCurrency(filteredData.net)}</p>
+           </div>
+        </div>
       </div>
     </div>
   );
@@ -448,8 +453,12 @@ function App() {
   const [kayitlar, setKayitlar] = React.useState([]);
   const [giderler, setGiderler] = React.useState([]);
   const [searchTerm, setSearchTerm] = React.useState('');
-  const [filterDonem, setFilterDonem] = React.useState('Tümü');
-  const [viewMode, setViewMode] = React.useState('card'); // 'card' or 'table'
+  // Filter States for Lists
+  const [listFilterEgitimTuru, setListFilterEgitimTuru] = React.useState('Tümü');
+  const [listFilterDonem, setListFilterDonem] = React.useState('Tümü');
+  const [listFilterSinif, setListFilterSinif] = React.useState('Tümü');
+
+  const [viewMode, setViewMode] = React.useState('card');
   const [editModal, setEditModal] = React.useState({open:false, item:null, mode:null});
   const [tahsilatModal, setTahsilatModal] = React.useState(null);
   const [giderModal, setGiderModal] = React.useState(false);
@@ -506,14 +515,37 @@ function App() {
     ActivityLog.log(currentUser.username, 'KAYIT ARŞİVLEME', item?.adSoyad);
   };
 
-  const handleKasaBorcChange = (val) => {
+  const handleKasaBorcChange = (val, date) => {
     setKasaBorc(val);
-    DB.set('kasa_borc', val);
+    DB.set('kasa_borc', val, date);
     ActivityLog.log(currentUser.username, 'BORÇ GÜNCELLEME', 'Yeni Bakiye: ' + formatCurrency(val));
   };
 
-  const filteredKayitlar = kayitlar.filter(k => { if (k.arsivlendi) return false; const matchSearch = !searchTerm || k.adSoyad?.toLowerCase().includes(searchTerm.toLowerCase()) || k.tcKimlik?.includes(searchTerm) || k.telefon?.includes(searchTerm); const matchDonem = filterDonem === 'Tümü' || k.donem === filterDonem; return matchSearch && matchDonem; });
+  const filteredKayitlar = kayitlar.filter(k => { 
+    if (k.arsivlendi) return false; 
+    const matchSearch = !searchTerm || k.adSoyad?.toLowerCase().includes(searchTerm.toLowerCase()) || k.tcKimlik?.includes(searchTerm) || k.telefon?.includes(searchTerm); 
+    const matchDonem = listFilterDonem === 'Tümü' || k.donem === listFilterDonem;
+    const matchEgitimTuru = listFilterEgitimTuru === 'Tümü' || k.egitimTuru === listFilterEgitimTuru;
+    const matchSinif = listFilterSinif === 'Tümü' || k.sinif === listFilterSinif;
+    return matchSearch && matchDonem && matchEgitimTuru && matchSinif; 
+  });
+  
   const stats = { toplamOgrenci: kayitlar.filter(k => !k.arsivlendi).length, toplamGelir: kayitlar.filter(k => !k.arsivlendi).reduce((sum, k) => sum + (k.odenen || 0), 0), bekleyenTahsilat: kayitlar.filter(k => !k.arsivlendi).reduce((sum, k) => sum + ((k.toplamUcret || 0) - (k.odenen || 0)), 0), toplamGider: giderler.reduce((sum, g) => sum + (g.tutar || 0), 0) };
+
+  // Helper for filter bar
+  const FilterBar = () => (
+    <div className="flex flex-col md:flex-row gap-3 mb-6 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex-1 relative"><Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-12 pr-4 py-2 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:outline-none transition" placeholder="Ad, TC veya telefon..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+      <select className="px-3 py-2 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:outline-none bg-white" value={listFilterEgitimTuru} onChange={e => setListFilterEgitimTuru(e.target.value)}><option>Tümü</option><option>Temel</option><option>Yenileme</option><option value="Silah Farkı">Silah Farkı</option></select>
+      <select className="px-3 py-2 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:outline-none bg-white" value={listFilterDonem} onChange={e => setListFilterDonem(e.target.value)}><option>Tümü</option>{TUM_DONEMLER.map(d => <option key={d}>{d}</option>)}</select>
+      <select className="px-3 py-2 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:outline-none bg-white" value={listFilterSinif} onChange={e => setListFilterSinif(e.target.value)}><option>Tümü</option>{SINIFLAR.map(s => <option key={s}>{s}</option>)}</select>
+      <div className="flex bg-gray-100 p-1 rounded-xl shrink-0">
+        <button onClick={()=>setViewMode('card')} className={"p-2 rounded-lg transition " + (viewMode==='card'?'bg-white shadow text-green-600':'text-gray-500')}><Icon name="LayoutGrid" size={20} /></button>
+        <button onClick={()=>setViewMode('table')} className={"p-2 rounded-lg transition " + (viewMode==='table'?'bg-white shadow text-green-600':'text-gray-500')}><Icon name="Table" size={20} /></button>
+      </div>
+      <button onClick={() => exportToExcel(filteredKayitlar, activeTab, [{ key: 'adSoyad', label: 'Ad Soyad' }, { key: 'tcKimlik', label: 'TC Kimlik' }, { key: 'telefon', label: 'Telefon' }, { key: 'donem', label: 'Dönem' }, { key: 'sinif', label: 'Sınıf' }, { key: 'egitimCesidi', label: 'Eğitim Çeşidi' }, { key: 'egitimTuru', label: 'Eğitim Türü' }])} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition shrink-0"><Icon name="Download" size={18} />Excel</button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen pb-20 md:pb-0">
@@ -541,19 +573,8 @@ function App() {
 
           {activeTab === 'kursiyer' && (
             <div className="fade-in">
-              <div className="mb-6 space-y-4">
-                <div className="flex flex-col md:flex-row gap-3">
-                  <div className="flex-1 relative"><Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" placeholder="Ad, TC veya telefon ile ara..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-                  <select className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none transition" value={filterDonem} onChange={e => setFilterDonem(e.target.value)}><option>Tümü</option>{TUM_DONEMLER.map(d => <option key={d}>{d}</option>)}</select>
-                  <div className="flex bg-gray-100 p-1 rounded-xl">
-                    <button onClick={()=>setViewMode('card')} className={"p-2 rounded-lg transition " + (viewMode==='card'?'bg-white shadow text-green-600':'text-gray-500')}><Icon name="LayoutGrid" size={20} /></button>
-                    <button onClick={()=>setViewMode('table')} className={"p-2 rounded-lg transition " + (viewMode==='table'?'bg-white shadow text-green-600':'text-gray-500')}><Icon name="Table" size={20} /></button>
-                  </div>
-                  <button onClick={() => exportToExcel(filteredKayitlar, 'kursiyerler', [{ key: 'adSoyad', label: 'Ad Soyad' }, { key: 'tcKimlik', label: 'TC Kimlik' }, { key: 'telefon', label: 'Telefon' }, { key: 'donem', label: 'Dönem' }, { key: 'sinif', label: 'Sınıf' }, { key: 'egitimCesidi', label: 'Eğitim Çeşidi' }, { key: 'egitimTuru', label: 'Eğitim Türü' }])} className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition"><Icon name="Download" size={18} />Excel</button>
-                </div>
-                <p className="text-sm text-gray-500">{filteredKayitlar.length} kursiyer bulundu</p>
-              </div>
-              
+              <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-gray-800">Kursiyer Listesi</h2><p className="text-sm text-gray-500">{filteredKayitlar.length} kayıt bulundu</p></div>
+              <FilterBar />
               {viewMode === 'card' ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">{filteredKayitlar.map(k => <OgrenciCard key={k.id} item={k} onEdit={(item)=>setEditModal({ open: true, item, mode: 'personal' })} onDelete={handleArchive} />)}</div>
               ) : (
@@ -585,19 +606,8 @@ function App() {
 
           {activeTab === 'muhasebe' && currentUser.role === 'admin' && (
             <div className="fade-in">
-              <div className="mb-6 space-y-4">
-                <div className="flex flex-col md:flex-row gap-3">
-                  <div className="flex-1 relative"><Icon name="Search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" /><input className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" placeholder="Kursiyer ara..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-                  <select className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition" value={filterDonem} onChange={e => setFilterDonem(e.target.value)}><option>Tümü</option>{TUM_DONEMLER.map(d => <option key={d}>{d}</option>)}</select>
-                  <div className="flex bg-gray-100 p-1 rounded-xl">
-                    <button onClick={()=>setViewMode('card')} className={"p-2 rounded-lg transition " + (viewMode==='card'?'bg-white shadow text-blue-600':'text-gray-500')}><Icon name="LayoutGrid" size={20} /></button>
-                    <button onClick={()=>setViewMode('table')} className={"p-2 rounded-lg transition " + (viewMode==='table'?'bg-white shadow text-blue-600':'text-gray-500')}><Icon name="Table" size={20} /></button>
-                  </div>
-                  <button onClick={() => exportToExcel(filteredKayitlar, 'muhasebe', [{ key: 'adSoyad', label: 'Ad Soyad' }, { key: 'tcKimlik', label: 'TC Kimlik' }, { key: 'telefon', label: 'Telefon' }, { key: 'egitimCesidi', label: 'Eğitim Türü' }, { key: 'donem', label: 'Dönem' }, { key: 'sinif', label: 'Sınıf' }, { key: 'odemeTuru', label: 'Ödeme Türü', format: (r) => r.odemeTuru === 'taksit' ? 'Taksit (' + r.taksitSayisi + ')' : 'Peşin' }, { key: 'toplamUcret', label: 'Toplam', format: (r) => formatCurrency(r.toplamUcret) }, { key: 'odenen', label: '1. Ödeme', format: (r) => formatCurrency(r.odenen) }, { key: 'odemeTarihi', label: '1. Ödeme Tarihi', format: (r) => formatDate(r.odemeTarihi) }, { key: 'vadeTarihi', label: 'Vade Tarihi', format: (r) => formatDate(r.vadeTarihi) }, { key: 'aciklama', label: 'Açıklama' }])} className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center gap-2 transition"><Icon name="Download" size={18} />Excel</button>
-                </div>
-                <p className="text-sm text-gray-500">{filteredKayitlar.length} kursiyer bulundu</p>
-              </div>
-
+              <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-gray-800">Muhasebe Kayıtları</h2><p className="text-sm text-gray-500">{filteredKayitlar.length} kayıt bulundu</p></div>
+              <FilterBar />
               {viewMode === 'card' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{filteredKayitlar.map(k => <MuhasebeCard key={k.id} item={k} onEdit={(item)=>setEditModal({ open: true, item, mode: 'financial' })} onTahsilat={(item)=>setTahsilatModal(item)} onDelete={handleArchive} />)}</div>
               ) : (
