@@ -52,7 +52,7 @@
     .custom-table tr:last-child td { border-bottom: none; }
   </style>
   <script>
-    const APP_VERSION = 'v12';
+    const APP_VERSION = 'v13';
     const storedVersion = localStorage.getItem('yesil_app_version');
     if (storedVersion !== APP_VERSION) {
       if ('caches' in window) { caches.keys().then(names => { names.forEach(name => caches.delete(name)); }); }
@@ -109,7 +109,6 @@ const DB = {
       
       let kasaBorc = 0;
       if (kasaRows && kasaRows.length > 1) {
-         // Kasa sayfasının 2. satırındaki 3. sütunu (Index 2) borç olarak alıyoruz.
          kasaBorc = parseFloat(kasaRows[1][2]) || 0;
       }
 
@@ -226,9 +225,9 @@ function KayitForm({ editItem, viewMode, onClose, onSave }) {
           </div></div>}
           {showFinancial && <div><h4 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2"><Icon name="Receipt" size={20} className="text-blue-600" />Muhasebe Bilgileri</h4><div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Ödeme Türü</label><select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" value={form.odemeTuru} onChange={e=>{const v=e.target.value;handleChange('odemeTuru',v);if(v==='pesin'){handleChange('taksitSayisi',0);handleChange('vadeTarihi','');handleChange('vadeTarihi2','');handleChange('odenen', form.toplamUcret);} else if(v==='taksit'){handleChange('odenen', 0);}}}><option value="pesin">Peşin</option><option value="taksit">Taksit</option></select></div>
-            <div><label className="block text-sm font-semibold text-gray-700 mb-2">Toplam Ücret</label><input type="number" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none font-bold text-lg" placeholder="0.00" value={form.toplamUcret} onChange={e=>{const val=parseFloat(e.target.value)||0; handleChange('toplamUcret',val); if(form.odemeTuru === 'pesin') handleChange('odenen', val);}} /></div>
+            <div><label className="block text-sm font-semibold text-gray-700 mb-2">Toplam Ücret</label><input type="number" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none font-bold text-lg" placeholder="0.00" value={form.toplamUcret === 0 ? '' : form.toplamUcret} onChange={e=>{const val=parseFloat(e.target.value)||0; handleChange('toplamUcret',val); if(form.odemeTuru === 'pesin') handleChange('odenen', val);}} /></div>
             {form.odemeTuru === 'taksit' && <div><label className="block text-sm font-semibold text-gray-700 mb-2">Taksit Sayısı</label><select className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" value={form.taksitSayisi} onChange={e=>{const s=parseInt(e.target.value)||0;handleChange('taksitSayisi',s);if(s<3)handleChange('vadeTarihi2','');}}><option value="2">2 Taksit</option></select></div>}
-            <div><label className="block text-sm font-semibold text-gray-700 mb-2">Ödenen Tutar</label><input type="number" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none font-bold text-lg text-green-600" placeholder="0.00" value={form.odenen} onChange={e=>{const val=parseFloat(e.target.value)||0;if(val<=form.toplamUcret)handleChange('odenen',val);else{handleChange('odenen',form.toplamUcret);alert('Ödenen tutar toplam ücretten fazla olamaz!');}}} /></div>
+            <div><label className="block text-sm font-semibold text-gray-700 mb-2">Ödenen Tutar</label><input type="number" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none font-bold text-lg text-green-600" placeholder="0.00" value={form.odenen === 0 ? '' : form.odenen} onChange={e=>{const val=parseFloat(e.target.value)||0;if(val<=form.toplamUcret)handleChange('odenen',val);else{handleChange('odenen',form.toplamUcret);alert('Ödenen tutar toplam ücretten fazla olamaz!');}}} /></div>
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Ödeme Tarihi</label><input type="date" required className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" placeholder="gün.ay.yıl" value={form.odemeTarihi} onChange={e=>handleChange('odemeTarihi',e.target.value)} max="9999-12-31" /></div>
             {form.odemeTuru === 'taksit' && <div><label className="block text-sm font-semibold text-gray-700 mb-2">Vade Tarihi</label><input type="date" required className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" placeholder="gün.ay.yıl" value={form.vadeTarihi} onChange={e=>handleChange('vadeTarihi',e.target.value)} max="9999-12-31" /></div>}
             <div><label className="block text-sm font-semibold text-gray-700 mb-2">Makbuz No</label><input className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" placeholder="Makbuz No" value={form.makbuzNo} onChange={e=>handleChange('makbuzNo',e.target.value)} /></div>
